@@ -1,6 +1,6 @@
 {
   "name": "siyuan-hugo-publisher",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "SiYuan plugin to publish notes to Hugo",
   "scripts": {
     "build": "rm -rf dist && mkdir -p dist && npx esbuild src/index.ts --bundle --outfile=dist/index.js --format=cjs --platform=node --target=es2020 --minify --external:siyuan --external:electron --external:fs --external:path --external:crypto --external:os && cp plugin.json dist/ && cp -r i18n dist/",
