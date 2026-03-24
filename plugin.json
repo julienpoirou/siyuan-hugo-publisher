@@ -1,0 +1,20 @@
+{
+  "name": "siyuan-hugo-publisher",
+  "author": "siyuan-hugo-publisher",
+  "url": "https://github.com/julienpoirou/siyuan-hugo-publisher",
+  "version": "1.0.0",
+  "minAppVersion": "2.9.0",
+  "displayName": {
+    "default": "SiYuan Hugo Publisher",
+    "zh_CN": "SiYuan Hugo 发布器"
+  },
+  "description": {
+    "default": "Publish SiYuan notes to a Hugo static site",
+    "zh_CN": "将 SiYuan 笔记发布到 Hugo 静态网站"
+  },
+  "readme": {
+    "default": "README.md"
+  },
+  "funding": {},
+  "keywords": ["hugo", "publish", "static-site", "markdown"]
+}

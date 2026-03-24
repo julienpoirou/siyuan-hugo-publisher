@@ -1,0 +1,135 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const {
+  cleanSiYuanMarkdown,
+  convertDoc,
+  renderMarkdownFile,
+  resolveIcon,
+} = require("../.test-build/src/converter.js");
+
+const config = {
+  hugoProjectPath: "/data/hugo-site",
+  contentDir: "content/posts",
+  staticDir: "static/images",
+  publishTag: "",
+  defaultDraft: false,
+  slugMode: "title",
+  autoSyncOnSave: false,
+  autoCleanOrphans: false,
+  language: "",
+};
+
+test("cleanSiYuanMarkdown removes IAL, front matter and internal block links", () => {
+  const input = `{: id="20240101010101-test"}\n---\ntitle: "Imported"\n---\n\nSee [Doc](siyuan://blocks/20240101010101-test)\n\n\nBody`;
+  assert.equal(cleanSiYuanMarkdown(input), "See Doc\n\nBody");
+});
+
+test("resolveIcon supports raw unicode and hex codepoints", () => {
+  assert.equal(resolveIcon("1f389"), "🎉");
+  assert.equal(resolveIcon("1f1eb-1f1f7"), "🇫🇷");
+  assert.equal(resolveIcon("📝"), "📝");
+});
+
+test("convertDoc rewrites images and emits expected front matter fields", async () => {
+  const result = await convertDoc(
+    "20240115143022-abc123",
+    "# Hello\n\n![Alt](assets/photo.png)",
+    "Mon Article",
+    {
+      title: "Mon Article",
+      tags: "#tech #notes",
+      categories: "blog",
+      icon: "1f389",
+      "title-img": "assets/banner.png",
+      created: "20240115143022",
+      updated: "20240120101500",
+    },
+    config
+  );
+
+  assert.equal(result.frontMatter.title, "Mon Article");
+  assert.equal(result.frontMatter.slug, "mon-article");
+  assert.equal(result.frontMatter.icon, "🎉");
+  assert.equal(result.frontMatter.cover, "/images/banner.png");
+  assert.deepEqual(result.frontMatter.tags, ["tech", "notes"]);
+  assert.deepEqual(result.frontMatter.categories, ["blog"]);
+  assert.match(result.body, /!\[Alt\]\(\/images\/photo\.png\)/);
+  assert.equal(result.images.length, 2);
+
+  const rendered = renderMarkdownFile(result);
+  assert.match(rendered, /^---[\s\S]*slug: "mon-article"/);
+  assert.match(rendered, /cover: "\/images\/banner\.png"/);
+});
+
+test("convertDoc keeps external cover URLs and CSS cover styles", async () => {
+  const externalCover = await convertDoc(
+    "20240115143022-cover1",
+    "Body",
+    "Doc",
+    {
+      title: "Doc",
+      "title-img": "https://example.com/cover.png",
+    },
+    config
+  );
+  assert.equal(externalCover.frontMatter.cover, "https://example.com/cover.png");
+  assert.equal(externalCover.frontMatter.cover_style, undefined);
+
+  const cssCover = await convertDoc(
+    "20240115143022-cover2",
+    "Body",
+    "Doc",
+    {
+      title: "Doc",
+      "title-img": "background: linear-gradient(red, blue);",
+    },
+    config
+  );
+  assert.equal(cssCover.frontMatter.cover, undefined);
+  assert.equal(cssCover.frontMatter.cover_style, "background: linear-gradient(red, blue);");
+});
+
+test("convertDoc removes duplicate banner image from markdown body", async () => {
+  const result = await convertDoc(
+    "20240115143022-banner",
+    "![Banner](assets/banner.png)\n\nBody",
+    "Doc",
+    {
+      title: "Doc",
+      "title-img": "assets/banner.png",
+    },
+    config
+  );
+
+  assert.equal(result.frontMatter.cover, "/images/banner.png");
+  assert.equal(result.body, "Body");
+});
+
+test("converter fixtures remain stable", async () => {
+  const fixturesDir = path.join(__dirname, "fixtures", "converter");
+  for (const fixtureFile of fs.readdirSync(fixturesDir).filter((name) => name.endsWith(".json"))) {
+    const fixture = JSON.parse(fs.readFileSync(path.join(fixturesDir, fixtureFile), "utf8"));
+    const result = await convertDoc(
+      fixture.docId,
+      fixture.markdown,
+      fixture.docName,
+      fixture.ial,
+      config
+    );
+
+    assert.equal(result.frontMatter.slug, fixture.expected.slug, `${fixtureFile}: slug`);
+    assert.equal(result.frontMatter.cover ?? null, fixture.expected.cover ?? null, `${fixtureFile}: cover`);
+    assert.equal(result.frontMatter.cover_style ?? null, fixture.expected.cover_style ?? null, `${fixtureFile}: cover_style`);
+    assert.equal(result.frontMatter.icon ?? null, fixture.expected.icon ?? null, `${fixtureFile}: icon`);
+
+    for (const snippet of fixture.expected.bodyIncludes) {
+      assert.match(result.body, new RegExp(snippet.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${fixtureFile}: include ${snippet}`);
+    }
+    for (const snippet of fixture.expected.bodyExcludes) {
+      assert.doesNotMatch(result.body, new RegExp(snippet.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${fixtureFile}: exclude ${snippet}`);
+    }
+  }
+});

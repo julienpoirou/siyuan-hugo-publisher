@@ -1,0 +1,62 @@
+services:
+  siyuan:
+    build:
+      context: .
+      dockerfile: docker/siyuan/Dockerfile
+    container_name: siyuan
+    restart: unless-stopped
+    ports:
+      - "${SIYUAN_PORT:-6806}:6806"
+    environment:
+      - SIYUAN_WORKSPACE=/siyuan/workspace
+      - SIYUAN_ACCESS_AUTH_CODE=${SIYUAN_ACCESS_AUTH_CODE:-changeme}
+      - HUGO_SITE_PATH=/data/hugo-site
+    volumes:
+      - siyuan_workspace:/siyuan/workspace
+      - hugo_site:/siyuan/workspace/data/hugo-site
+    networks:
+      - siyuan_net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:6806/api/system/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  hugo:
+    build:
+      context: .
+      dockerfile: docker/hugo/Dockerfile
+    container_name: hugo
+    restart: unless-stopped
+    ports:
+      - "${HUGO_PORT:-1313}:1313"
+    environment:
+      - SITE_BASE_URL=${HUGO_BASE_URL:-http://localhost:1313/}
+      - SITE_TITLE=${HUGO_TITLE:-Mon Blog}
+      - SITE_LANGUAGE_CODE=${HUGO_LANGUAGE_CODE:-fr}
+      - HUGO_POLL_INTERVAL=${HUGO_POLL_INTERVAL:-700ms}
+      - SITE_THEME_GIT=${HUGO_THEME_GIT:-}
+      - SITE_THEME=${HUGO_THEME:-}
+    volumes:
+      - hugo_site:/src
+    networks:
+      - siyuan_net
+    depends_on:
+      - siyuan
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:1313/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  siyuan_workspace:
+    name: siyuan_workspace
+  hugo_site:
+    name: hugo_site
+
+networks:
+  siyuan_net:
+    name: siyuan_net

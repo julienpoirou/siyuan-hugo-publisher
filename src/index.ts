@@ -1,0 +1,300 @@
+import { Plugin } from "siyuan";
+
+import type { HugoConfig } from "./types";
+import { getMirroredDocIds, initSyncState } from "./sync-state";
+import { initSettings, loadConfig } from "./settings";
+import { publishDoc as doPublish, unpublishDoc as doUnpublish, getDocStatus, reconcileOrphanDocs } from "./publisher";
+import { exportMdContent } from "./api";
+import { upsertBadge } from "./ui/badge";
+import { showToast } from "./ui/toast";
+import { createLogger, getErrorMessage } from "./logger";
+import { setupPluginSettings } from "./plugin-settings";
+import { registerNativeMenus } from "./plugin-menus";
+import { bindPluginEvents } from "./plugin-events";
+import type { EventBusLike } from "./plugin-types";
+
+const PUBLISH_HOTKEY = "⌥⌘P";
+const UNPUBLISH_HOTKEY = "⌥⌘U";
+const log = createLogger("plugin");
+const asPluginEventBus = (eventBus: unknown): EventBusLike => eventBus as EventBusLike;
+const BACKGROUND_RECONCILE_INTERVAL_MS = 30000;
+
+export default class HugoPublisherPlugin extends Plugin {
+  private config: HugoConfig | null = null;
+  private statusCache = new Map<string, string>();
+  private tabObserver: MutationObserver | null = null;
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private missingDocReconcileTimer: ReturnType<typeof setTimeout> | null = null;
+  private missingDocReconcileInterval: ReturnType<typeof setInterval> | null = null;
+  private pendingDeletedDocs = new Set<string>();
+  private isReconcilingMissingDocs = false;
+  private activeDocId: string | null = null;
+  private activeProtyleEl: HTMLElement | undefined = undefined;
+
+  async onload() {
+    initSyncState(this);
+    initSettings(this);
+    this.config = await loadConfig();
+
+    this.setting = setupPluginSettings({
+      getConfig: () => this.config ?? {
+        hugoProjectPath: "",
+        contentDir: "content/posts",
+        staticDir: "static/images",
+        publishTag: "",
+        defaultDraft: false,
+        slugMode: "title",
+        autoSyncOnSave: false,
+        autoCleanOrphans: false,
+        language: "",
+      },
+      onConfigChange: (config) => {
+        this.config = config;
+      },
+      runOrphanCleanup: () => this.runOrphanCleanup(false),
+    });
+
+    if (this.config?.autoCleanOrphans) {
+      void this.runOrphanCleanup(true);
+    }
+
+    this.addCommand({
+      langKey: "publishToHugo",
+      langText: "Publish to Hugo",
+      hotkey: PUBLISH_HOTKEY,
+      callback: () => this.publishCurrentDoc(),
+    });
+
+    this.addCommand({
+      langKey: "unpublishFromHugo",
+      langText: "Unpublish from Hugo",
+      hotkey: UNPUBLISH_HOTKEY,
+      callback: () => this.unpublishCurrentDoc(),
+    });
+
+    registerNativeMenus(asPluginEventBus(this.eventBus), PUBLISH_HOTKEY, UNPUBLISH_HOTKEY, {
+      getStatus: (docId) => this.statusCache.get(docId),
+      isRootId: (id): id is string => this.isRootId(id),
+      publishDoc: (docId, protyleEl) => this.publishDoc(docId, protyleEl),
+      unpublishDoc: (docId, protyleEl, silent) => this.unpublishDoc(docId, protyleEl, silent),
+    });
+
+    this.startTabObserver();
+    this.missingDocReconcileInterval = setInterval(() => {
+      void this.reconcileMissingPublishedDocs();
+    }, BACKGROUND_RECONCILE_INTERVAL_MS);
+    log.info("Plugin loaded");
+  }
+
+  async onunload() {
+    this.tabObserver?.disconnect();
+    if (this.missingDocReconcileTimer) clearTimeout(this.missingDocReconcileTimer);
+    if (this.missingDocReconcileInterval) clearInterval(this.missingDocReconcileInterval);
+  }
+
+  async runOrphanCleanup(silent = false): Promise<void> {
+    if (!this.config) return;
+    try {
+      const { removed, errors } = await reconcileOrphanDocs(this.config);
+      if (removed.length > 0) {
+        showToast(`Orphans removed: ${removed.length}`, "info");
+        await this.refreshAllOpenDocs();
+      } else if (!silent) {
+        showToast("No orphans found", "info");
+      }
+      if (errors.length > 0) {
+        showToast(`Orphan cleanup errors: ${errors.length}`, "error");
+      }
+    } catch (err) {
+      log.error("Orphan cleanup failed", err);
+      if (!silent) showToast(`Orphan cleanup failed: ${getErrorMessage(err)}`, "error");
+    }
+  }
+
+  async publishCurrentDoc(): Promise<void> {
+    const docId = this.getCurrentDocId();
+    if (!docId) { showToast("Aucun document ouvert", "warning"); return; }
+    await this.publishDoc(docId, this.activeProtyleEl);
+  }
+
+  async unpublishCurrentDoc(): Promise<void> {
+    const docId = this.getCurrentDocId();
+    if (!docId) { showToast("Aucun document ouvert", "warning"); return; }
+    await this.unpublishDoc(docId, this.activeProtyleEl);
+  }
+
+  async unpublishDoc(docId: string, protyleEl?: HTMLElement, silent = false): Promise<void> {
+    if (!this.config?.hugoProjectPath) {
+      showToast("Configure the Hugo path in plugin settings first", "error");
+      return;
+    }
+    try {
+      const result = await doUnpublish(docId, this.config);
+      if (result.success) {
+        this.statusCache.set(docId, "not-published");
+        upsertBadge(protyleEl ?? null, docId, "not-published");
+        if (!silent) showToast(`Dépublié : ${result.hugoPath}`, "success", 4000);
+      } else if (!silent) {
+        showToast(result.message, "error", 4000);
+      }
+    } catch (err) {
+      log.error(`Unpublish failed for ${docId}`, err);
+      if (!silent) showToast(getErrorMessage(err), "error", 4000);
+    }
+  }
+
+  async publishDoc(docId: string, protyleEl?: HTMLElement, silent = false): Promise<void> {
+    if (!this.config?.hugoProjectPath) {
+      showToast("Configure the Hugo path in plugin settings first", "error");
+      this.setting.open(this.name);
+      return;
+    }
+
+    if (!silent) showToast("Publication en cours…", "info", 2000);
+    const result = await doPublish(docId, this.config);
+
+    if (result.success) {
+      if (!silent) {
+        const msg = [
+          `Publié : ${result.hugoPath}`,
+          result.imagesCopied ? `${result.imagesCopied} image(s)` : null,
+          result.imagesErrors?.length ? `${result.imagesErrors.length} erreur(s) image` : null,
+        ].filter(Boolean).join(" · ");
+        showToast(msg, "success", 5000);
+      }
+      const now = new Date().toISOString();
+      this.statusCache.set(docId, "synced");
+      upsertBadge(protyleEl ?? null, docId, "synced", now);
+    } else if (!silent) {
+      showToast(result.message, "error", 6000);
+    }
+  }
+
+  async refreshDocStatus(docId: string, protyleEl?: HTMLElement): Promise<void> {
+    if (!this.config?.hugoProjectPath) return;
+    try {
+      const result = await getDocStatus(docId, this.config);
+      upsertBadge(protyleEl ?? null, docId, result.status, result.lastSync);
+      this.statusCache.set(docId, result.status);
+    } catch (err) {
+      log.warn(`Status refresh failed for ${docId}`, err);
+    }
+  }
+
+  private scheduleRefresh(docId: string, protyleEl?: HTMLElement): void {
+    const existing = this.refreshTimers.get(docId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(async () => {
+      this.refreshTimers.delete(docId);
+      await this.refreshDocStatus(docId, protyleEl);
+      if (this.config?.autoSyncOnSave && this.statusCache.get(docId) === "modified") {
+        await this.publishDoc(docId, protyleEl, true);
+      }
+    }, 1500);
+    this.refreshTimers.set(docId, timer);
+  }
+
+  private bindEvents(): void {
+    bindPluginEvents(asPluginEventBus(this.eventBus), {
+      isRootId: (id): id is string => this.isRootId(id),
+      getActiveDocId: () => this.activeDocId,
+      getActiveProtyleEl: () => this.activeProtyleEl,
+      setActiveDoc: (docId, protyleEl) => this.setActiveDoc(docId, protyleEl),
+      clearActiveDoc: (docId) => {
+        if (this.activeDocId === docId) {
+          this.activeDocId = null;
+          this.activeProtyleEl = undefined;
+        }
+      },
+      refreshDocStatus: (docId, protyleEl) => this.refreshDocStatus(docId, protyleEl),
+      scheduleMissingDocReconcile: () => this.scheduleMissingDocReconcile(),
+      scheduleRefresh: (docId, protyleEl) => this.scheduleRefresh(docId, protyleEl),
+      deleteStatus: (docId) => this.statusCache.delete(docId),
+      clearRefreshTimer: (docId) => {
+        const timer = this.refreshTimers.get(docId);
+        if (timer) {
+          clearTimeout(timer);
+          this.refreshTimers.delete(docId);
+        }
+      },
+    });
+  }
+
+  private startTabObserver(): void {
+    const layoutEl = document.querySelector("#layouts");
+    if (!layoutEl) {
+      setTimeout(() => this.startTabObserver(), 1000);
+      return;
+    }
+
+    this.tabObserver = new MutationObserver((mutations) => {
+      const isOwnMutation = mutations.every((m) =>
+        Array.from(m.addedNodes).every(
+          (n) => n instanceof Element && n.classList.contains("hugo-sync-badge")
+        )
+      );
+      if (isOwnMutation) return;
+      if (this.debounceTimer) clearTimeout(this.debounceTimer);
+      this.debounceTimer = setTimeout(() => this.refreshAllOpenDocs(), 800);
+    });
+
+    this.tabObserver.observe(layoutEl, { attributeFilter: ["data-id"], subtree: true });
+    this.bindEvents();
+  }
+
+  private async refreshAllOpenDocs(): Promise<void> {
+    for (const docId of this.statusCache.keys()) {
+      const el = docId === this.activeDocId ? this.activeProtyleEl : undefined;
+      await this.refreshDocStatus(docId, el);
+    }
+  }
+
+  private isRootId(id: string | undefined): id is string {
+    return !!id && /^\d{14}-\w+$/.test(id);
+  }
+  private getCurrentDocId(): string | null {
+    return this.activeDocId;
+  }
+
+  private setActiveDoc(docId: string, protyleEl?: HTMLElement): void {
+    this.activeDocId = docId;
+    this.activeProtyleEl = protyleEl;
+  }
+
+  private scheduleMissingDocReconcile(): void {
+    if (this.missingDocReconcileTimer) clearTimeout(this.missingDocReconcileTimer);
+    this.missingDocReconcileTimer = setTimeout(() => {
+      this.missingDocReconcileTimer = null;
+      void this.reconcileMissingPublishedDocs();
+    }, 1200);
+  }
+
+  private async reconcileMissingPublishedDocs(): Promise<void> {
+    if (this.isReconcilingMissingDocs) return;
+    if (typeof document !== "undefined" && document.hidden) return;
+
+    this.isReconcilingMissingDocs = true;
+    const trackedDocIds = await getMirroredDocIds();
+    try {
+      if (trackedDocIds.length === 0) return;
+
+      for (const docId of trackedDocIds) {
+        if (this.pendingDeletedDocs.has(docId)) continue;
+        try {
+          await exportMdContent(docId);
+        } catch {
+          this.pendingDeletedDocs.add(docId);
+          try {
+            await this.unpublishDoc(docId, undefined, true);
+            this.statusCache.delete(docId);
+          } finally {
+            this.pendingDeletedDocs.delete(docId);
+          }
+        }
+      }
+    } finally {
+      this.isReconcilingMissingDocs = false;
+    }
+  }
+}

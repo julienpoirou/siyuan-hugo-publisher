@@ -1,0 +1,16 @@
+{
+  "name": "siyuan-hugo-publisher",
+  "version": "1.0.0",
+  "description": "SiYuan plugin to publish notes to Hugo",
+  "scripts": {
+    "build": "rm -rf dist && mkdir -p dist && npx esbuild src/index.ts --bundle --outfile=dist/index.js --format=cjs --platform=node --target=es2020 --minify --external:siyuan --external:electron --external:fs --external:path --external:crypto --external:os && cp plugin.json dist/ && cp -r i18n dist/",
+    "typecheck": "tsc --noEmit",
+    "test": "rm -rf .test-build && tsc -p tsconfig.json --outDir .test-build --rootDir . --module CommonJS --moduleResolution node --declaration false --declarationMap false --sourceMap false && node --test tests/**/*.test.js",
+    "check": "npm run typecheck && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.0",
+    "typescript": "^5.4.0",
+    "siyuan": "^1.1.8"
+  }
+}

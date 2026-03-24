@@ -1,0 +1,14 @@
+# Dependency
+node_modules/
+
+# Build
+dist/
+
+# Local environment
+.env
+
+# Local tests
+.test-build/
+
+# Release artifacts
+*.zip

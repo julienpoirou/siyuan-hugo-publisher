@@ -1,0 +1,19 @@
+{
+  "publishToHugo": "Publish to Hugo",
+  "publishSuccess": "Published successfully",
+  "publishError": "Publication error",
+  "notConfigured": "Configure Hugo path in settings first",
+  "noDocOpen": "No document open",
+  "synced": "Synced",
+  "modified": "Modified",
+  "notPublished": "Not published",
+  "settings": "Hugo Publisher Settings",
+  "hugoProjectPath": "Hugo project path",
+  "contentDir": "Content directory",
+  "staticDir": "Images directory",
+  "publishTag": "Publish tag filter",
+  "defaultDraft": "Publish as draft by default",
+  "autoSyncOnSave": "Auto-sync on save",
+  "slugMode": "Slug mode",
+  "language": "Hugo language prefix"
+}

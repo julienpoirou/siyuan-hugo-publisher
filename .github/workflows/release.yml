@@ -1,0 +1,33 @@
+name: Publish release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-plugin:
+    name: Build & attach plugin zip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build plugin
+        run: npm run build
+
+      - name: Create zip
+        run: cd dist && zip -r ../siyuan-hugo-publisher.zip .
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: siyuan-hugo-publisher.zip

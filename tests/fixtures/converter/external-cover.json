@@ -1,0 +1,18 @@
+{
+  "docId": "20240115143022-externalcover",
+  "docName": "External Cover",
+  "markdown": "Body",
+  "ial": {
+    "title": "External Cover",
+    "title-img": "https://example.com/cover.png"
+  },
+  "expected": {
+    "slug": "external-cover",
+    "cover": "https://example.com/cover.png",
+    "cover_style": null,
+    "bodyIncludes": [
+      "Body"
+    ],
+    "bodyExcludes": []
+  }
+}

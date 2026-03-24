@@ -1,0 +1,19 @@
+{
+  "publishToHugo": "Publier vers Hugo",
+  "publishSuccess": "Publication réussie",
+  "publishError": "Erreur de publication",
+  "notConfigured": "Configurez d'abord le chemin Hugo dans les paramètres",
+  "noDocOpen": "Aucun document ouvert",
+  "synced": "Synchronisé",
+  "modified": "Modifié",
+  "notPublished": "Non publié",
+  "settings": "Paramètres Hugo Publisher",
+  "hugoProjectPath": "Chemin du projet Hugo",
+  "contentDir": "Dossier de contenu",
+  "staticDir": "Dossier des images",
+  "publishTag": "Filtre par tag",
+  "defaultDraft": "Publier en brouillon par défaut",
+  "autoSyncOnSave": "Synchronisation auto à la sauvegarde",
+  "slugMode": "Mode slug",
+  "language": "Préfixe de langue Hugo"
+}

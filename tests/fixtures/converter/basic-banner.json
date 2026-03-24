@@ -1,0 +1,25 @@
+{
+  "docId": "20240115143022-bannerfixture",
+  "docName": "Fixture Doc",
+  "markdown": "![Banner](assets/banner.png)\n\nParagraph with ![Inline](assets/photo.png)",
+  "ial": {
+    "title": "Fixture Doc",
+    "tags": "#fixture #test",
+    "categories": "notes",
+    "icon": "1f389",
+    "title-img": "assets/banner.png",
+    "created": "20240115143022",
+    "updated": "20240120101500"
+  },
+  "expected": {
+    "slug": "fixture-doc",
+    "cover": "/images/banner.png",
+    "icon": "🎉",
+    "bodyIncludes": [
+      "Paragraph with ![Inline](/images/photo.png)"
+    ],
+    "bodyExcludes": [
+      "![Banner](/images/banner.png)"
+    ]
+  }
+}

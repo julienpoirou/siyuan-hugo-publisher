@@ -1,0 +1,19 @@
+{
+  "publishToHugo": "发布到 Hugo",
+  "publishSuccess": "发布成功",
+  "publishError": "发布错误",
+  "notConfigured": "请先在设置中配置 Hugo 路径",
+  "noDocOpen": "没有打开的文档",
+  "synced": "已同步",
+  "modified": "已修改",
+  "notPublished": "未发布",
+  "settings": "Hugo 发布器设置",
+  "hugoProjectPath": "Hugo 项目路径",
+  "contentDir": "内容目录",
+  "staticDir": "图片目录",
+  "publishTag": "发布标签过滤",
+  "defaultDraft": "默认以草稿发布",
+  "autoSyncOnSave": "保存时自动同步",
+  "slugMode": "Slug 模式",
+  "language": "Hugo 语言前缀"
+}
