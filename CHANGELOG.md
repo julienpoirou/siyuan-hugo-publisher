@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/siyuan-hugo-publisher-v1.0.1...siyuan-hugo-publisher-v1.1.0) (2026-03-25)
+
+
+### Features ✨
+
+* **build:** Add logo and download badge to the repository README ([da9e4d4](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/da9e4d45035d205a93326bc653353f4d920afc6d))
+
 ## [1.0.1](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/siyuan-hugo-publisher-v1.0.0...siyuan-hugo-publisher-v1.0.1) (2026-03-24)
 
 
