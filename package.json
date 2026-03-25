@@ -1,6 +1,6 @@
 {
   "name": "siyuan-hugo-publisher",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "SiYuan plugin to publish notes to Hugo with metadata mapping, image handling, auto-sync on save, and orphan-aware cleanup.",
   "scripts": {
     "build": "rm -rf dist && mkdir -p dist && npx esbuild src/index.ts --bundle --outfile=dist/index.js --format=cjs --platform=node --target=es2020 --minify --external:siyuan --external:electron --external:fs --external:path --external:crypto --external:os && cp plugin.json dist/ && cp src/README.md dist/README.md && cp src/logo.png dist/logo.png && cp -r i18n dist/",
