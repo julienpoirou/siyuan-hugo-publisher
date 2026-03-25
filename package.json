@@ -1,9 +1,9 @@
 {
   "name": "siyuan-hugo-publisher",
   "version": "1.0.1",
-  "description": "SiYuan plugin to publish notes to Hugo",
+  "description": "SiYuan plugin to publish notes to Hugo with metadata mapping, image handling, auto-sync on save, and orphan-aware cleanup.",
   "scripts": {
-    "build": "rm -rf dist && mkdir -p dist && npx esbuild src/index.ts --bundle --outfile=dist/index.js --format=cjs --platform=node --target=es2020 --minify --external:siyuan --external:electron --external:fs --external:path --external:crypto --external:os && cp plugin.json dist/ && cp -r i18n dist/",
+    "build": "rm -rf dist && mkdir -p dist && npx esbuild src/index.ts --bundle --outfile=dist/index.js --format=cjs --platform=node --target=es2020 --minify --external:siyuan --external:electron --external:fs --external:path --external:crypto --external:os && cp plugin.json dist/ && cp src/README.md dist/README.md && cp src/logo.png dist/logo.png && cp -r i18n dist/",
     "typecheck": "tsc --noEmit",
     "test": "rm -rf .test-build && tsc -p tsconfig.json --outDir .test-build --rootDir . --module Node16 --moduleResolution node16 --declaration false --declarationMap false --sourceMap false && node --test tests/*.test.js",
     "check": "npm run typecheck && npm run test && npm run build"
