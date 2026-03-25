@@ -1,0 +1,22 @@
+# Convert all text in the repository to line breaks
+*           text eol=lf
+
+# Languages and configurations
+*.ts        text eol=lf
+*.js        text eol=lf
+*.sh        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.md        text eol=lf
+*.json      text eol=lf
+Makefile    text eol=lf
+
+# Binaries
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.pdf       binary
+*.zip       binary
+*.svg       binary
+*.webp      binary
