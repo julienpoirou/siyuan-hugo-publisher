@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { exportMdContent, fileExists, readDir } = require("../.test-build/src/api.js");
+const { exportMdContent, fileExists, makeDir, readDir, removeFile } = require("../.test-build/src/api.js");
 const {
   setSiyuanHttpClient,
   resetSiyuanHttpClient,
@@ -132,6 +132,31 @@ async function testReadDirFailurePayload() {
   assert.deepEqual(await readDir("/data/hugo-site/content/posts"), []);
 }
 
+/**
+ * Verifies that file mutation helpers reject failing SiYuan payloads even on HTTP 200.
+ *
+ * @returns {Promise<void>}
+ */
+async function testMutationPayloadFailures() {
+  setSiyuanHttpClient({
+    async postJson() {
+      return new Response(JSON.stringify({ code: 1, msg: "remove failed" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+    async postForm() {
+      return new Response(JSON.stringify({ code: 1, msg: "mkdir failed" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+  });
+
+  await assert.rejects(removeFile("/data/hugo-site/content/posts/doc.md"), /removeFile: remove failed/);
+  await assert.rejects(makeDir("/data/hugo-site/content/posts"), /makeDir: mkdir failed/);
+}
+
 test.afterEach(restoreHttpClient);
 
 test("api wrappers use injected client for JSON calls", testJsonApiWrappers);
@@ -139,3 +164,5 @@ test("api wrappers use injected client for JSON calls", testJsonApiWrappers);
 test("fileExists maps HTTP status from injected client", testFileExistsStatusMapping);
 
 test("readDir returns empty array on injected client failure payload", testReadDirFailurePayload);
+
+test("file mutation helpers reject failing SiYuan payloads", testMutationPayloadFailures);

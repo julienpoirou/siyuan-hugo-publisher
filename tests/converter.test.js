@@ -130,6 +130,25 @@ async function testBannerDeduplication() {
 }
 
 /**
+ * Verifies that non-Latin titles fall back to the document identifier for slug generation.
+ *
+ * @returns {Promise<void>}
+ */
+async function testNonLatinSlugFallback() {
+  const result = await convertDoc(
+    "20240115143022-nonlatin",
+    "Body",
+    "标题",
+    {
+      title: "标题",
+    },
+    config
+  );
+
+  assert.equal(result.frontMatter.slug, "20240115143022-nonlatin");
+}
+
+/**
  * Verifies that JSON conversion fixtures still match the converter output.
  *
  * @returns {Promise<void>}
@@ -169,5 +188,7 @@ test("convertDoc rewrites images and emits expected front matter fields", testDo
 test("convertDoc keeps external cover URLs and CSS cover styles", testCoverPreservation);
 
 test("convertDoc removes duplicate banner image from markdown body", testBannerDeduplication);
+
+test("convertDoc falls back to doc id when title slugifies to empty", testNonLatinSlugFallback);
 
 test("converter fixtures remain stable", testConverterFixtures);

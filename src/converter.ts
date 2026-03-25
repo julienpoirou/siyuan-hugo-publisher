@@ -28,9 +28,16 @@ function slugify(text: string): string {
  */
 function generateSlug(title: string, docId: string, mode: HugoConfig["slugMode"]): string {
   switch (mode) {
-    case "id":    return docId;
-    case "title": return slugify(title);
-    default:      return slugify(title);
+    case "id":
+      return docId;
+    case "title": {
+      const slug = slugify(title);
+      return slug || docId;
+    }
+    default: {
+      const slug = slugify(title);
+      return slug || docId;
+    }
   }
 }
 
