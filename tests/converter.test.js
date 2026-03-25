@@ -22,18 +22,29 @@ const config = {
   language: "",
 };
 
-test("cleanSiYuanMarkdown removes IAL, front matter and internal block links", () => {
+/**
+ * Verifies cleanup of SiYuan-specific Markdown constructs.
+ */
+function testMarkdownCleanup() {
   const input = `{: id="20240101010101-test"}\n---\ntitle: "Imported"\n---\n\nSee [Doc](siyuan://blocks/20240101010101-test)\n\n\nBody`;
   assert.equal(cleanSiYuanMarkdown(input), "See Doc\n\nBody");
-});
+}
 
-test("resolveIcon supports raw unicode and hex codepoints", () => {
+/**
+ * Verifies icon decoding for unicode strings and hex codepoints.
+ */
+function testIconResolution() {
   assert.equal(resolveIcon("1f389"), "🎉");
   assert.equal(resolveIcon("1f1eb-1f1f7"), "🇫🇷");
   assert.equal(resolveIcon("📝"), "📝");
-});
+}
 
-test("convertDoc rewrites images and emits expected front matter fields", async () => {
+/**
+ * Verifies image rewriting and front matter generation during conversion.
+ *
+ * @returns {Promise<void>}
+ */
+async function testDocumentConversion() {
   const result = await convertDoc(
     "20240115143022-abc123",
     "# Hello\n\n![Alt](assets/photo.png)",
@@ -62,9 +73,14 @@ test("convertDoc rewrites images and emits expected front matter fields", async 
   const rendered = renderMarkdownFile(result);
   assert.match(rendered, /^---[\s\S]*slug: "mon-article"/);
   assert.match(rendered, /cover: "\/images\/banner\.png"/);
-});
+}
 
-test("convertDoc keeps external cover URLs and CSS cover styles", async () => {
+/**
+ * Verifies that external and CSS-based covers are preserved.
+ *
+ * @returns {Promise<void>}
+ */
+async function testCoverPreservation() {
   const externalCover = await convertDoc(
     "20240115143022-cover1",
     "Body",
@@ -90,9 +106,14 @@ test("convertDoc keeps external cover URLs and CSS cover styles", async () => {
   );
   assert.equal(cssCover.frontMatter.cover, undefined);
   assert.equal(cssCover.frontMatter.cover_style, "background: linear-gradient(red, blue);");
-});
+}
 
-test("convertDoc removes duplicate banner image from markdown body", async () => {
+/**
+ * Verifies that duplicated banner images are removed from the Markdown body.
+ *
+ * @returns {Promise<void>}
+ */
+async function testBannerDeduplication() {
   const result = await convertDoc(
     "20240115143022-banner",
     "![Banner](assets/banner.png)\n\nBody",
@@ -106,9 +127,14 @@ test("convertDoc removes duplicate banner image from markdown body", async () =>
 
   assert.equal(result.frontMatter.cover, "/images/banner.png");
   assert.equal(result.body, "Body");
-});
+}
 
-test("converter fixtures remain stable", async () => {
+/**
+ * Verifies that JSON conversion fixtures still match the converter output.
+ *
+ * @returns {Promise<void>}
+ */
+async function testConverterFixtures() {
   const fixturesDir = path.join(__dirname, "fixtures", "converter");
   for (const fixtureFile of fs.readdirSync(fixturesDir).filter((name) => name.endsWith(".json"))) {
     const fixture = JSON.parse(fs.readFileSync(path.join(fixturesDir, fixtureFile), "utf8"));
@@ -132,4 +158,16 @@ test("converter fixtures remain stable", async () => {
       assert.doesNotMatch(result.body, new RegExp(snippet.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${fixtureFile}: exclude ${snippet}`);
     }
   }
-});
+}
+
+test("cleanSiYuanMarkdown removes IAL, front matter and internal block links", testMarkdownCleanup);
+
+test("resolveIcon supports raw unicode and hex codepoints", testIconResolution);
+
+test("convertDoc rewrites images and emits expected front matter fields", testDocumentConversion);
+
+test("convertDoc keeps external cover URLs and CSS cover styles", testCoverPreservation);
+
+test("convertDoc removes duplicate banner image from markdown body", testBannerDeduplication);
+
+test("converter fixtures remain stable", testConverterFixtures);

@@ -7,6 +7,13 @@ export interface ImageCopyResult {
   error?: string;
 }
 
+/**
+ * Copies referenced SiYuan assets into the configured Hugo static directory.
+ *
+ * @param images Image references extracted from a converted document.
+ * @param config Active Hugo publishing configuration.
+ * @returns Per-image copy results.
+ */
 export async function copyImagesToHugo(
   images: ImageRef[],
   config: HugoConfig
@@ -46,6 +53,12 @@ export async function copyImagesToHugo(
   return results;
 }
 
+/**
+ * Validates that the configured Hugo project path looks like a Hugo site root.
+ *
+ * @param config Active Hugo publishing configuration.
+ * @returns Validation status and an error message when invalid.
+ */
 export async function validateHugoProject(config: HugoConfig): Promise<{ valid: boolean; error?: string }> {
   if (!config.hugoProjectPath) {
     return { valid: false, error: "Chemin Hugo non configuré" };

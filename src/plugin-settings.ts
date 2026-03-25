@@ -12,10 +12,27 @@ interface SetupPluginSettingsOptions {
 
 type FieldMap = Record<string, HTMLInputElement | HTMLSelectElement>;
 
+/**
+ * Reads a typed configuration value through a dynamic key.
+ *
+ * @param config Current plugin configuration.
+ * @param key Configuration key to read.
+ * @returns The raw configuration value.
+ */
 function getConfigValue(config: HugoConfig, key: string): unknown {
   return (config as unknown as Record<string, unknown>)[key];
 }
 
+/**
+ * Creates a text input bound to a configuration field.
+ *
+ * @param fields Field registry updated with the created element.
+ * @param key Configuration field key.
+ * @param getConfig Callback returning the current config.
+ * @param onChange Change handler used to persist updates.
+ * @param placeholder Optional placeholder text.
+ * @returns The created input element.
+ */
 function createTextField(
   fields: FieldMap,
   key: string,
@@ -32,6 +49,15 @@ function createTextField(
   return el;
 }
 
+/**
+ * Creates a checkbox input bound to a boolean configuration field.
+ *
+ * @param fields Field registry updated with the created element.
+ * @param key Configuration field key.
+ * @param getConfig Callback returning the current config.
+ * @param onChange Change handler used to persist updates.
+ * @returns The created checkbox element.
+ */
 function createSwitchField(
   fields: FieldMap,
   key: string,
@@ -47,6 +73,12 @@ function createSwitchField(
   return el;
 }
 
+/**
+ * Rebuilds the plugin configuration object from the settings form fields.
+ *
+ * @param fields Current settings field registry.
+ * @returns The normalized configuration object.
+ */
 function buildConfigFromFields(fields: FieldMap): HugoConfig {
   return {
     hugoProjectPath: (fields.hugoProjectPath as HTMLInputElement).value.trim(),
@@ -61,6 +93,9 @@ function buildConfigFromFields(fields: FieldMap): HugoConfig {
   };
 }
 
+/**
+ * Tweaks the native SiYuan settings dialog styling for this plugin panel.
+ */
 function installSettingsDialogObserver(): void {
   const dialogObserver = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
@@ -111,6 +146,12 @@ function installSettingsDialogObserver(): void {
   dialogObserver.observe(document.body, { childList: true, subtree: true });
 }
 
+/**
+ * Builds the SiYuan settings panel for the plugin configuration.
+ *
+ * @param options Settings callbacks used to read, save, and trigger actions.
+ * @returns The configured SiYuan `Setting` instance.
+ */
 export function setupPluginSettings(options: SetupPluginSettingsOptions): Setting {
   const fields: FieldMap = {};
   let saveTimer: ReturnType<typeof setTimeout> | null = null;

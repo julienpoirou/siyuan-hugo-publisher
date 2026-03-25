@@ -11,6 +11,11 @@ export interface MenuActions {
   unpublishDoc: (docId: string, protyleEl?: HTMLElement, silent?: boolean) => void | Promise<void>;
 }
 
+/**
+ * Closes a native or fallback DOM menu.
+ *
+ * @param menuEl Menu root element.
+ */
 function closeMenu(menuEl: HTMLElement): void {
   try {
     if (!removeNativeMenu()) {
@@ -21,6 +26,16 @@ function closeMenu(menuEl: HTMLElement): void {
   }
 }
 
+/**
+ * Creates a menu button consistent with SiYuan's native menu styling.
+ *
+ * @param menuEl Parent menu element.
+ * @param icon Icon identifier.
+ * @param label Button label.
+ * @param hotkey Shortcut hint to display.
+ * @param onClick Callback triggered when the button is clicked.
+ * @returns The constructed button element.
+ */
 function createMenuButton(
   menuEl: HTMLElement,
   icon: string,
@@ -40,6 +55,13 @@ function createMenuButton(
   return button;
 }
 
+/**
+ * Hooks the native delete action to silently unpublish the matching Hugo page.
+ *
+ * @param menuEl Active menu element.
+ * @param docId SiYuan document identifier.
+ * @param actions Menu action handlers.
+ */
 function installDeleteAutoUnpublish(menuEl: HTMLElement, docId: string, actions: MenuActions): void {
   const allItems = Array.from(menuEl.querySelectorAll<HTMLElement>(".b3-menu__item"));
   const deleteItem = allItems.find((item) => {
@@ -65,6 +87,14 @@ function installDeleteAutoUnpublish(menuEl: HTMLElement, docId: string, actions:
   }, { once: true, capture: true });
 }
 
+/**
+ * Registers native editor-title and document-tree menu entries for publishing actions.
+ *
+ * @param eventBus SiYuan event bus implementation.
+ * @param publishHotkey Shortcut label for publish actions.
+ * @param unpublishHotkey Shortcut label for unpublish actions.
+ * @param actions Action callbacks invoked by the injected menu entries.
+ */
 export function registerNativeMenus(
   eventBus: EventBusLike,
   publishHotkey: string,

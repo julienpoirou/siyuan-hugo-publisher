@@ -27,10 +27,23 @@ interface HugoDestination {
   relativePath: (slug: string) => string;
 }
 
+/**
+ * Removes leading and trailing slashes from a path segment.
+ *
+ * @param value Raw path segment.
+ * @returns The trimmed segment.
+ */
 function trimSlashes(value: string): string {
   return value.replace(/^\/+|\/+$/g, "");
 }
 
+/**
+ * Resolves the effective Hugo content directory, optionally inserting a language prefix.
+ *
+ * @param contentDir Configured Hugo content directory.
+ * @param language Optional language code.
+ * @returns The localized content directory path.
+ */
 export function resolveLocalizedContentDir(contentDir: string, language: string): string {
   const normalizedDir = trimSlashes(contentDir);
   const normalizedLang = trimSlashes(language);
@@ -43,6 +56,12 @@ export function resolveLocalizedContentDir(contentDir: string, language: string)
   return [normalizedLang, ...segments].join("/");
 }
 
+/**
+ * Builds the destination helpers used for Hugo content output paths.
+ *
+ * @param config Active Hugo publishing configuration.
+ * @returns Resolved destination helpers.
+ */
 function buildHugoDestination(config: HugoConfig): HugoDestination {
   const hugoBase = toWorkspacePath(config.hugoProjectPath);
   const contentDir = resolveLocalizedContentDir(config.contentDir, config.language);
@@ -56,10 +75,22 @@ function buildHugoDestination(config: HugoConfig): HugoDestination {
   };
 }
 
+/**
+ * Deduplicates and normalizes relative paths.
+ *
+ * @param paths Candidate paths.
+ * @returns Unique normalized paths.
+ */
 function uniquePaths(paths: string[]): string[] {
   return Array.from(new Set(paths.map((path) => trimSlashes(path)).filter(Boolean)));
 }
 
+/**
+ * Derives common Hugo public output paths generated from a content file.
+ *
+ * @param hugoRelPath Relative Hugo content path.
+ * @returns Candidate generated public artifact paths.
+ */
 export function deriveGeneratedPublicPaths(hugoRelPath: string): string[] {
   const normalized = trimSlashes(hugoRelPath);
   if (!normalized.endsWith(".md")) return [];
@@ -76,6 +107,12 @@ export function deriveGeneratedPublicPaths(hugoRelPath: string): string[] {
   ]);
 }
 
+/**
+ * Removes published files relative to the configured Hugo project root.
+ *
+ * @param paths Relative file paths to remove.
+ * @param config Active Hugo publishing configuration.
+ */
 async function removePublishedFiles(paths: string[], config: HugoConfig): Promise<void> {
   const hugoBase = toWorkspacePath(config.hugoProjectPath);
   for (const relPath of uniquePaths(paths)) {
@@ -87,6 +124,12 @@ async function removePublishedFiles(paths: string[], config: HugoConfig): Promis
   }
 }
 
+/**
+ * Removes a published content file and its likely generated public artifacts.
+ *
+ * @param hugoRelPath Relative Hugo content path.
+ * @param config Active Hugo publishing configuration.
+ */
 async function removePublishedPageArtifacts(hugoRelPath: string, config: HugoConfig): Promise<void> {
   await removePublishedFiles(
     [hugoRelPath, ...deriveGeneratedPublicPaths(hugoRelPath)],
@@ -94,6 +137,11 @@ async function removePublishedPageArtifacts(hugoRelPath: string, config: HugoCon
   );
 }
 
+/**
+ * Writes a marker file used to trigger a Hugo-side refresh.
+ *
+ * @param config Active Hugo publishing configuration.
+ */
 async function triggerHugoRefresh(config: HugoConfig): Promise<void> {
   const hugoBase = toWorkspacePath(config.hugoProjectPath);
   const markerDir = `${hugoBase}/data`;
@@ -106,6 +154,14 @@ async function triggerHugoRefresh(config: HugoConfig): Promise<void> {
   await putFile(markerPath, `${markerContent}\n`);
 }
 
+/**
+ * Resolves a unique slug by probing the target directory for collisions.
+ *
+ * @param baseSlug Initial slug candidate.
+ * @param docId SiYuan document identifier.
+ * @param destDir Destination directory path ending with a slash.
+ * @returns A slug that is unique for the target directory.
+ */
 async function resolveUniqueSlug(
   baseSlug: string,
   docId: string,
@@ -127,6 +183,13 @@ async function resolveUniqueSlug(
   }
 }
 
+/**
+ * Publishes a SiYuan document to the configured Hugo project.
+ *
+ * @param docId SiYuan document identifier.
+ * @param config Active Hugo publishing configuration.
+ * @returns The publish operation result.
+ */
 export async function publishDoc(
   docId: string,
   config: HugoConfig
@@ -245,6 +308,13 @@ export interface UnpublishResult {
   hugoPath?: string;
 }
 
+/**
+ * Unpublishes a previously published SiYuan document from the Hugo project.
+ *
+ * @param docId SiYuan document identifier.
+ * @param config Active Hugo publishing configuration.
+ * @returns The unpublish operation result.
+ */
 export async function unpublishDoc(docId: string, config: HugoConfig): Promise<UnpublishResult> {
   const entry = await getSyncEntry(docId);
   if (!entry?.hugoPath) {
@@ -266,6 +336,13 @@ export async function unpublishDoc(docId: string, config: HugoConfig): Promise<U
   return { success: true, message: `Dépublié : ${entry.hugoPath}`, hugoPath: entry.hugoPath };
 }
 
+/**
+ * Computes the current publish status for a SiYuan document.
+ *
+ * @param docId SiYuan document identifier.
+ * @param config Active Hugo publishing configuration.
+ * @returns The current sync status and related metadata.
+ */
 export async function getDocStatus(docId: string, config: HugoConfig): Promise<StatusResult> {
   let exported: { hPath: string; content: string };
   try {
@@ -329,6 +406,12 @@ export interface OrphanResult {
   errors: string[];
 }
 
+/**
+ * Removes published Hugo pages whose backing SiYuan documents no longer exist or moved.
+ *
+ * @param config Active Hugo publishing configuration.
+ * @returns Lists of removed orphan paths and encountered errors.
+ */
 export async function reconcileOrphanDocs(config: HugoConfig): Promise<OrphanResult> {
   const removed: string[] = [];
   const errors: string[] = [];
@@ -336,6 +419,11 @@ export async function reconcileOrphanDocs(config: HugoConfig): Promise<OrphanRes
   const destination = buildHugoDestination(config);
   const hugoBase = toWorkspacePath(config.hugoProjectPath);
 
+  /**
+   * Recursively scans the Hugo content tree for orphaned published files.
+   *
+   * @param dirPath Directory path to scan.
+   */
   async function scanDir(dirPath: string): Promise<void> {
     const entries = await readDir(dirPath);
     for (const entry of entries) {

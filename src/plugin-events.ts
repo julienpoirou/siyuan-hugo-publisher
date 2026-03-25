@@ -13,6 +13,12 @@ export interface EventBindings {
   clearRefreshTimer: (docId: string) => void;
 }
 
+/**
+ * Binds the core SiYuan event listeners used by the plugin lifecycle.
+ *
+ * @param eventBus SiYuan event bus implementation.
+ * @param bindings Plugin callbacks invoked for each event.
+ */
 export function bindPluginEvents(
   eventBus: EventBusLike,
   bindings: EventBindings

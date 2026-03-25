@@ -16,6 +16,13 @@ import type { EventBusLike } from "./plugin-types";
 const PUBLISH_HOTKEY = "⌥⌘P";
 const UNPUBLISH_HOTKEY = "⌥⌘U";
 const log = createLogger("plugin");
+
+/**
+ * Casts the plugin event bus to the narrowed type expected by plugin helpers.
+ *
+ * @param eventBus Raw SiYuan event bus instance.
+ * @returns The event bus with plugin-specific typing.
+ */
 const asPluginEventBus = (eventBus: unknown): EventBusLike => eventBus as EventBusLike;
 const BACKGROUND_RECONCILE_INTERVAL_MS = 30000;
 
@@ -32,6 +39,9 @@ export default class HugoPublisherPlugin extends Plugin {
   private activeDocId: string | null = null;
   private activeProtyleEl: HTMLElement | undefined = undefined;
 
+  /**
+   * Initializes plugin state, settings, commands, menus, and event bindings.
+   */
   async onload() {
     initSyncState(this);
     initSettings(this);
@@ -87,12 +97,20 @@ export default class HugoPublisherPlugin extends Plugin {
     log.info("Plugin loaded");
   }
 
+  /**
+   * Tears down observers and timers created during plugin startup.
+   */
   async onunload() {
     this.tabObserver?.disconnect();
     if (this.missingDocReconcileTimer) clearTimeout(this.missingDocReconcileTimer);
     if (this.missingDocReconcileInterval) clearInterval(this.missingDocReconcileInterval);
   }
 
+  /**
+   * Removes orphaned Hugo pages whose source SiYuan documents are gone or stale.
+   *
+   * @param silent When `true`, suppresses the "no orphans" toast.
+   */
   async runOrphanCleanup(silent = false): Promise<void> {
     if (!this.config) return;
     try {
@@ -112,18 +130,31 @@ export default class HugoPublisherPlugin extends Plugin {
     }
   }
 
+  /**
+   * Publishes the currently active document.
+   */
   async publishCurrentDoc(): Promise<void> {
     const docId = this.getCurrentDocId();
     if (!docId) { showToast("Aucun document ouvert", "warning"); return; }
     await this.publishDoc(docId, this.activeProtyleEl);
   }
 
+  /**
+   * Unpublishes the currently active document.
+   */
   async unpublishCurrentDoc(): Promise<void> {
     const docId = this.getCurrentDocId();
     if (!docId) { showToast("Aucun document ouvert", "warning"); return; }
     await this.unpublishDoc(docId, this.activeProtyleEl);
   }
 
+  /**
+   * Unpublishes a specific document and updates local UI state.
+   *
+   * @param docId SiYuan document identifier.
+   * @param protyleEl Active protyle element when available.
+   * @param silent When `true`, suppresses success and error toasts.
+   */
   async unpublishDoc(docId: string, protyleEl?: HTMLElement, silent = false): Promise<void> {
     if (!this.config?.hugoProjectPath) {
       showToast("Configure the Hugo path in plugin settings first", "error");
@@ -144,6 +175,13 @@ export default class HugoPublisherPlugin extends Plugin {
     }
   }
 
+  /**
+   * Publishes a specific document and updates local UI state.
+   *
+   * @param docId SiYuan document identifier.
+   * @param protyleEl Active protyle element when available.
+   * @param silent When `true`, suppresses user-facing toasts.
+   */
   async publishDoc(docId: string, protyleEl?: HTMLElement, silent = false): Promise<void> {
     if (!this.config?.hugoProjectPath) {
       showToast("Configure the Hugo path in plugin settings first", "error");
@@ -171,6 +209,12 @@ export default class HugoPublisherPlugin extends Plugin {
     }
   }
 
+  /**
+   * Refreshes the computed publish status for a document badge.
+   *
+   * @param docId SiYuan document identifier.
+   * @param protyleEl Active protyle element when available.
+   */
   async refreshDocStatus(docId: string, protyleEl?: HTMLElement): Promise<void> {
     if (!this.config?.hugoProjectPath) return;
     try {
@@ -182,6 +226,12 @@ export default class HugoPublisherPlugin extends Plugin {
     }
   }
 
+  /**
+   * Debounces status refreshes triggered by document-save activity.
+   *
+   * @param docId SiYuan document identifier.
+   * @param protyleEl Active protyle element when available.
+   */
   private scheduleRefresh(docId: string, protyleEl?: HTMLElement): void {
     const existing = this.refreshTimers.get(docId);
     if (existing) clearTimeout(existing);
@@ -195,6 +245,9 @@ export default class HugoPublisherPlugin extends Plugin {
     this.refreshTimers.set(docId, timer);
   }
 
+  /**
+   * Binds SiYuan runtime events to plugin state transitions.
+   */
   private bindEvents(): void {
     bindPluginEvents(asPluginEventBus(this.eventBus), {
       isRootId: (id): id is string => this.isRootId(id),
@@ -221,6 +274,9 @@ export default class HugoPublisherPlugin extends Plugin {
     });
   }
 
+  /**
+   * Observes tab/layout mutations so badges stay in sync with the active editor view.
+   */
   private startTabObserver(): void {
     const layoutEl = document.querySelector("#layouts");
     if (!layoutEl) {
@@ -243,6 +299,9 @@ export default class HugoPublisherPlugin extends Plugin {
     this.bindEvents();
   }
 
+  /**
+   * Refreshes sync badges for all documents currently tracked in the local status cache.
+   */
   private async refreshAllOpenDocs(): Promise<void> {
     for (const docId of this.statusCache.keys()) {
       const el = docId === this.activeDocId ? this.activeProtyleEl : undefined;
@@ -250,18 +309,39 @@ export default class HugoPublisherPlugin extends Plugin {
     }
   }
 
+  /**
+   * Checks whether an identifier matches the SiYuan root document ID format.
+   *
+   * @param id Candidate identifier.
+   * @returns `true` when the identifier matches a root document ID.
+   */
   private isRootId(id: string | undefined): id is string {
     return !!id && /^\d{14}-\w+$/.test(id);
   }
+
+  /**
+   * Returns the currently active document identifier.
+   *
+   * @returns The active document ID or `null`.
+   */
   private getCurrentDocId(): string | null {
     return this.activeDocId;
   }
 
+  /**
+   * Updates the active document and editor element references.
+   *
+   * @param docId Active SiYuan document identifier.
+   * @param protyleEl Active protyle element when available.
+   */
   private setActiveDoc(docId: string, protyleEl?: HTMLElement): void {
     this.activeDocId = docId;
     this.activeProtyleEl = protyleEl;
   }
 
+  /**
+   * Debounces background reconciliation for documents deleted from SiYuan.
+   */
   private scheduleMissingDocReconcile(): void {
     if (this.missingDocReconcileTimer) clearTimeout(this.missingDocReconcileTimer);
     this.missingDocReconcileTimer = setTimeout(() => {
@@ -270,6 +350,9 @@ export default class HugoPublisherPlugin extends Plugin {
     }, 1200);
   }
 
+  /**
+   * Unpublishes documents that still exist in sync storage but can no longer be exported.
+   */
   private async reconcileMissingPublishedDocs(): Promise<void> {
     if (this.isReconcilingMissingDocs) return;
     if (typeof document !== "undefined" && document.hidden) return;

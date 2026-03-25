@@ -8,6 +8,13 @@ const STATUS_CONFIG: Record<SyncStatus, { emoji: string; label: string; color: s
   "not-published": { emoji: "🔴", label: "Not published", color: "#dc3545" },
 };
 
+/**
+ * Applies the visual style and tooltip text for a sync badge.
+ *
+ * @param badge Badge element to update.
+ * @param status Sync status to render.
+ * @param lastSync Optional last sync timestamp.
+ */
 function applyStatus(badge: HTMLElement, status: SyncStatus, lastSync?: string): void {
   const cfg = STATUS_CONFIG[status];
   const tooltip = lastSync
@@ -21,6 +28,14 @@ function applyStatus(badge: HTMLElement, status: SyncStatus, lastSync?: string):
   badge.innerHTML = `<span style="font-size:10px">${cfg.emoji}</span> ${cfg.label}`;
 }
 
+/**
+ * Creates a new badge element for a document sync status.
+ *
+ * @param docId SiYuan document identifier.
+ * @param status Sync status to render.
+ * @param lastSync Optional last sync timestamp.
+ * @returns The badge element.
+ */
 function createBadge(docId: string, status: SyncStatus, lastSync?: string): HTMLElement {
   const cfg = STATUS_CONFIG[status];
   const b = document.createElement("span");
@@ -37,6 +52,14 @@ function createBadge(docId: string, status: SyncStatus, lastSync?: string): HTML
   return b;
 }
 
+/**
+ * Creates or updates the sync badge attached to a document title.
+ *
+ * @param protyleEl Active protyle root element when available.
+ * @param docId SiYuan document identifier.
+ * @param status Sync status to render.
+ * @param lastSync Optional last sync timestamp.
+ */
 export function upsertBadge(
   protyleEl: HTMLElement | null,
   docId: string,
@@ -61,10 +84,22 @@ export function upsertBadge(
   container.appendChild(createBadge(docId, status, lastSync));
 }
 
+/**
+ * Removes the sync badge for a document when present.
+ *
+ * @param docId SiYuan document identifier.
+ */
 export function removeBadge(docId: string): void {
   document.getElementById(`${BADGE_ID_PREFIX}${docId}`)?.remove();
 }
 
+/**
+ * Finds the title container that should host the sync badge for a document.
+ *
+ * @param protyleEl Active protyle root element when available.
+ * @param docId SiYuan document identifier.
+ * @returns The matching title element or `null`.
+ */
 function findTitleEl(protyleEl: HTMLElement | null, docId: string): Element | null {
   if (protyleEl) {
     const t = protyleEl.querySelector(".protyle-title");

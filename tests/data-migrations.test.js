@@ -8,25 +8,34 @@ const {
   wrapVersionedPayload,
 } = require("../.test-build/src/data-migrations.js");
 
-test("migrateConfig supports legacy and versioned payloads", () => {
+/**
+ * Verifies that config migration accepts both legacy and versioned payloads.
+ */
+function testConfigMigration() {
   const legacy = migrateConfig({ hugoProjectPath: "/data/hugo-site", slugMode: "id" });
   assert.equal(legacy.hugoProjectPath, "/data/hugo-site");
   assert.equal(legacy.slugMode, "id");
 
   const versioned = migrateConfig(wrapVersionedPayload({ hugoProjectPath: "/data/other-site" }));
   assert.equal(versioned.hugoProjectPath, "/data/other-site");
-});
+}
 
-test("migrateImageRefStore filters invalid values", () => {
+/**
+ * Verifies that image reference migration filters invalid values and duplicates.
+ */
+function testImageRefStoreMigration() {
   const store = migrateImageRefStore({
     "static/images/a.png": ["doc-1", 42, "doc-1", "doc-2"],
   });
   assert.deepEqual(store, {
     "static/images/a.png": ["doc-1", "doc-2"],
   });
-});
+}
 
-test("migrateSyncMirrorStore supports versioned payloads", () => {
+/**
+ * Verifies that sync mirror migration supports versioned payloads.
+ */
+function testSyncMirrorStoreMigration() {
   const store = migrateSyncMirrorStore(wrapVersionedPayload({
     "doc-1": {
       hash: "abc",
@@ -46,4 +55,10 @@ test("migrateSyncMirrorStore supports versioned payloads", () => {
       images: ["static/images/a.png"],
     },
   });
-});
+}
+
+test("migrateConfig supports legacy and versioned payloads", testConfigMigration);
+
+test("migrateImageRefStore filters invalid values", testImageRefStoreMigration);
+
+test("migrateSyncMirrorStore supports versioned payloads", testSyncMirrorStoreMigration);
