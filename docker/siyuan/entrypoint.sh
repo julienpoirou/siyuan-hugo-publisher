@@ -12,21 +12,20 @@ cp -r /opt/plugin-dist/. "${PLUGIN_DIR}/"
 echo "[siyuan-hugo-publisher] Plugin files copied into ${PLUGIN_DIR}"
 
 activate_plugin() {
-  local conf="$1"
+  conf="$1"
 
-  if grep -q '"siyuan-hugo-publisher"' "${conf}"; then
+  if jq -e '.bazaar.plugins // [] | index("siyuan-hugo-publisher") != null' "${conf}" >/dev/null; then
     echo "[siyuan-hugo-publisher] Plugin already activated"
     return 0
   fi
 
   echo "[siyuan-hugo-publisher] Activation in conf.json..."
-
-  if grep -q '"plugins"' "${conf}"; then
-    sed -i 's/"plugins": \[/"plugins": ["siyuan-hugo-publisher", /' "${conf}" 2>/dev/null || \
-    sed -i 's/"plugins":\[/"plugins":["siyuan-hugo-publisher",/' "${conf}"
-  else
-    sed -i '1s/{/{"bazaar":{"plugins":["siyuan-hugo-publisher"]},/' "${conf}"
-  fi
+  tmp_conf="$(mktemp)"
+  jq '
+    .bazaar = (.bazaar // {}) |
+    .bazaar.plugins = ((.bazaar.plugins // []) + ["siyuan-hugo-publisher"] | unique)
+  ' "${conf}" > "${tmp_conf}"
+  mv "${tmp_conf}" "${conf}"
 
   echo "[siyuan-hugo-publisher] Plugin enabled in conf.json"
 }
