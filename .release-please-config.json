@@ -1,9 +1,14 @@
 {
-  "release-type": "node",
+  "release-type": "simple",
   "packages": {
     ".": {
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
+        {
+          "type": "json",
+          "path": "package.json",
+          "jsonpath": "$.version"
+        },
         {
           "type": "json",
           "path": "plugin.json",

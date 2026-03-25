@@ -24,13 +24,15 @@ RUN npx esbuild src/index.ts \
       --external:os \
     && cp plugin.json dist/ \
     && cp src/README.md dist/README.md \
-    && cp src/logo.png dist/logo.png \
+    && cp src/logo.png dist/icon.png \
+    && cp src/preview.png dist/preview.png \
     && cp -r i18n dist/
 
 FROM b3log/siyuan:latest
 
 COPY --from=builder /build/dist/ /opt/plugin-dist/
 COPY docker/siyuan/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN apk add --no-cache jq \
+    && chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
