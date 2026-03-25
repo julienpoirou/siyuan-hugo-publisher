@@ -9,6 +9,13 @@ const TYPE_CONFIG: Record<ToastType, { icon: string; bgColor: string; textColor:
   warning: { icon: "⚠️", bgColor: "#fff3cd", textColor: "#856404" },
 };
 
+/**
+ * Displays a toast through the native SiYuan API or a DOM fallback.
+ *
+ * @param message Message to display.
+ * @param type Visual toast type.
+ * @param durationMs Display duration in milliseconds.
+ */
 export function showToast(message: string, type: ToastType = "info", durationMs = 4000): void {
   const siyuanType = type === "success" ? "info" : type === "warning" ? "error" : type;
   if (showNativeMessage(message, durationMs, siyuanType)) {
@@ -18,6 +25,13 @@ export function showToast(message: string, type: ToastType = "info", durationMs 
   renderDOMToast(message, type, durationMs);
 }
 
+/**
+ * Renders a fallback toast directly in the DOM when native messages are unavailable.
+ *
+ * @param message Message to display.
+ * @param type Visual toast type.
+ * @param durationMs Display duration in milliseconds.
+ */
 function renderDOMToast(message: string, type: ToastType, durationMs: number): void {
   const cfg = TYPE_CONFIG[type];
 
@@ -71,6 +85,12 @@ function renderDOMToast(message: string, type: ToastType, durationMs: number): v
   });
 }
 
+/**
+ * Escapes user-facing text before inserting it into toast HTML.
+ *
+ * @param s Raw text to escape.
+ * @returns HTML-safe text.
+ */
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")

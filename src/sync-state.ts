@@ -19,14 +19,30 @@ let pluginInstance: {
   saveData: (key: string, value: unknown) => Promise<unknown>;
 } | null = null;
 
+/**
+ * Registers the plugin instance used to persist sync metadata.
+ *
+ * @param plugin Plugin instance exposing persistence helpers.
+ */
 export function initSyncState(plugin: typeof pluginInstance): void {
   pluginInstance = plugin;
 }
 
+/**
+ * Deduplicates and filters path values.
+ *
+ * @param paths Candidate paths.
+ * @returns Unique non-empty paths.
+ */
 function uniquePaths(paths: string[]): string[] {
   return Array.from(new Set(paths.filter(Boolean)));
 }
 
+/**
+ * Loads the persisted image reference store.
+ *
+ * @returns The normalized image reference store.
+ */
 async function loadImageRefStore(): Promise<ImageRefStore> {
   if (!pluginInstance) return {};
   try {
@@ -37,11 +53,21 @@ async function loadImageRefStore(): Promise<ImageRefStore> {
   }
 }
 
+/**
+ * Persists the image reference store.
+ *
+ * @param store Image reference store to save.
+ */
 async function saveImageRefStore(store: ImageRefStore): Promise<void> {
   if (!pluginInstance) return;
   await pluginInstance.saveData(IMAGE_REFS_KEY, wrapVersionedPayload(store));
 }
 
+/**
+ * Loads the persisted sync mirror store.
+ *
+ * @returns The normalized sync mirror store.
+ */
 async function loadSyncMirrorStore(): Promise<SyncMirrorStore> {
   if (!pluginInstance) return {};
   try {
@@ -52,16 +78,32 @@ async function loadSyncMirrorStore(): Promise<SyncMirrorStore> {
   }
 }
 
+/**
+ * Persists the sync mirror store.
+ *
+ * @param store Sync mirror store to save.
+ */
 async function saveSyncMirrorStore(store: SyncMirrorStore): Promise<void> {
   if (!pluginInstance) return;
   await pluginInstance.saveData(SYNC_MIRROR_KEY, wrapVersionedPayload(store));
 }
 
+/**
+ * Lists all document identifiers present in the mirror store.
+ *
+ * @returns Mirrored document identifiers.
+ */
 export async function getMirroredDocIds(): Promise<string[]> {
   const mirror = await loadSyncMirrorStore();
   return Object.keys(mirror);
 }
 
+/**
+ * Reads sync metadata for a published document.
+ *
+ * @param docId SiYuan document identifier.
+ * @returns The sync entry or `null` when unavailable.
+ */
 export async function getSyncEntry(docId: string): Promise<DocSyncEntry | null> {
   try {
     const attrs = await getBlockAttrs(docId);
@@ -89,6 +131,12 @@ export async function getSyncEntry(docId: string): Promise<DocSyncEntry | null> 
   }
 }
 
+/**
+ * Persists sync metadata for a published document in both plugin storage and block attributes.
+ *
+ * @param docId SiYuan document identifier.
+ * @param entry Sync metadata to save.
+ */
 export async function setSyncEntry(docId: string, entry: DocSyncEntry): Promise<void> {
   const mirror = await loadSyncMirrorStore();
   mirror[docId] = entry;
@@ -103,6 +151,11 @@ export async function setSyncEntry(docId: string, entry: DocSyncEntry): Promise<
   });
 }
 
+/**
+ * Removes sync metadata for a document from storage and block attributes.
+ *
+ * @param docId SiYuan document identifier.
+ */
 export async function removeSyncEntry(docId: string): Promise<void> {
   const mirror = await loadSyncMirrorStore();
   if (mirror[docId]) {
@@ -123,6 +176,14 @@ export async function removeSyncEntry(docId: string): Promise<void> {
   }
 }
 
+/**
+ * Updates the reverse image-reference index for a document publish cycle.
+ *
+ * @param docId SiYuan document identifier.
+ * @param previousImages Previously published image paths.
+ * @param nextImages Newly published image paths.
+ * @returns Image paths that are no longer referenced by any document.
+ */
 export async function reconcileImageRefsForDoc(
   docId: string,
   previousImages: string[],
@@ -154,6 +215,13 @@ export async function reconcileImageRefsForDoc(
   return orphaned;
 }
 
+/**
+ * Computes the sync status of a document by hashing its current exported content.
+ *
+ * @param docId SiYuan document identifier.
+ * @param currentContent Current exported Markdown.
+ * @returns The computed status and current content hash.
+ */
 export async function computeSyncStatus(
   docId: string,
   currentContent: string

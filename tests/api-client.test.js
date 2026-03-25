@@ -7,13 +7,28 @@ const {
   resetSiyuanHttpClient,
 } = require("../.test-build/src/api-client.js");
 
-test.afterEach(() => {
+/**
+ * Restores the default injected HTTP client after each test.
+ */
+function restoreHttpClient() {
   resetSiyuanHttpClient();
-});
+}
 
-test("api wrappers use injected client for JSON calls", async () => {
+/**
+ * Verifies that JSON-based API wrappers delegate requests to the injected client.
+ *
+ * @returns {Promise<void>}
+ */
+async function testJsonApiWrappers() {
   const calls = [];
   setSiyuanHttpClient({
+    /**
+     * Captures JSON requests issued by the API wrapper under test.
+     *
+     * @param {string} endpoint
+     * @param {unknown} body
+     * @returns {Promise<Response>}
+     */
     async postJson(endpoint, body) {
       calls.push({ endpoint, body });
       return new Response(JSON.stringify({
@@ -21,6 +36,11 @@ test("api wrappers use injected client for JSON calls", async () => {
         data: { hPath: "/Blog/Doc", content: "Hello" },
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     },
+    /**
+     * Rejects unexpected multipart requests in this test scenario.
+     *
+     * @returns {Promise<Response>}
+     */
     async postForm() {
       throw new Error("not expected");
     },
@@ -32,13 +52,28 @@ test("api wrappers use injected client for JSON calls", async () => {
     endpoint: "/api/export/exportMdContent",
     body: { id: "20240101010101-test" },
   }]);
-});
+}
 
-test("fileExists maps HTTP status from injected client", async () => {
+/**
+ * Verifies that `fileExists` maps HTTP status codes to booleans.
+ *
+ * @returns {Promise<void>}
+ */
+async function testFileExistsStatusMapping() {
   setSiyuanHttpClient({
+    /**
+     * Simulates a successful file lookup.
+     *
+     * @returns {Promise<Response>}
+     */
     async postJson() {
       return new Response("", { status: 200 });
     },
+    /**
+     * Rejects unexpected multipart requests in this test scenario.
+     *
+     * @returns {Promise<Response>}
+     */
     async postForm() {
       throw new Error("not expected");
     },
@@ -46,28 +81,61 @@ test("fileExists maps HTTP status from injected client", async () => {
   assert.equal(await fileExists("/data/hugo-site/content/posts/doc.md"), true);
 
   setSiyuanHttpClient({
+    /**
+     * Simulates a missing file lookup.
+     *
+     * @returns {Promise<Response>}
+     */
     async postJson() {
       return new Response("", { status: 404 });
     },
+    /**
+     * Rejects unexpected multipart requests in this test scenario.
+     *
+     * @returns {Promise<Response>}
+     */
     async postForm() {
       throw new Error("not expected");
     },
   });
   assert.equal(await fileExists("/data/hugo-site/content/posts/doc.md"), false);
-});
+}
 
-test("readDir returns empty array on injected client failure payload", async () => {
+/**
+ * Verifies that `readDir` returns an empty array for failing client payloads.
+ *
+ * @returns {Promise<void>}
+ */
+async function testReadDirFailurePayload() {
   setSiyuanHttpClient({
+    /**
+     * Simulates a successful HTTP response containing a failing SiYuan payload.
+     *
+     * @returns {Promise<Response>}
+     */
     async postJson() {
       return new Response(JSON.stringify({ code: 1, data: null }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
     },
+    /**
+     * Rejects unexpected multipart requests in this test scenario.
+     *
+     * @returns {Promise<Response>}
+     */
     async postForm() {
       throw new Error("not expected");
     },
   });
 
   assert.deepEqual(await readDir("/data/hugo-site/content/posts"), []);
-});
+}
+
+test.afterEach(restoreHttpClient);
+
+test("api wrappers use injected client for JSON calls", testJsonApiWrappers);
+
+test("fileExists maps HTTP status from injected client", testFileExistsStatusMapping);
+
+test("readDir returns empty array on injected client failure payload", testReadDirFailurePayload);

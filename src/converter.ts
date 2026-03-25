@@ -1,6 +1,12 @@
 import type { ConvertedDoc, FrontMatter, HugoConfig, ImageRef } from "./types";
 import { hashContent } from "./hash";
 
+/**
+ * Converts a title into a Hugo-friendly slug fragment.
+ *
+ * @param text Source title.
+ * @returns A normalized lowercase slug.
+ */
 function slugify(text: string): string {
   return text
     .toLowerCase()
@@ -12,6 +18,14 @@ function slugify(text: string): string {
     .replace(/-+/g, "-");
 }
 
+/**
+ * Generates the slug for a published document based on the configured mode.
+ *
+ * @param title Document title.
+ * @param docId SiYuan document identifier.
+ * @param mode Slug generation mode.
+ * @returns The generated slug.
+ */
 function generateSlug(title: string, docId: string, mode: HugoConfig["slugMode"]): string {
   switch (mode) {
     case "id":    return docId;
@@ -20,6 +34,13 @@ function generateSlug(title: string, docId: string, mode: HugoConfig["slugMode"]
   }
 }
 
+/**
+ * Rewrites embedded SiYuan asset images to Hugo static paths.
+ *
+ * @param markdown Source Markdown.
+ * @param staticDir Hugo static directory.
+ * @returns The rewritten Markdown and collected image references.
+ */
 function extractImages(markdown: string, staticDir: string): { markdown: string; images: ImageRef[] } {
   const images: ImageRef[] = [];
   const imgRegex = /!\[([^\]]*)\]\((assets\/[^)]+)\)/g;
@@ -42,6 +63,13 @@ function extractImages(markdown: string, staticDir: string): { markdown: string;
   return { markdown: processedMarkdown, images };
 }
 
+/**
+ * Extracts a banner image reference from SiYuan title-image metadata.
+ *
+ * @param titleImg Raw SiYuan title image attribute.
+ * @param staticDir Hugo static directory.
+ * @returns The corresponding image reference or `null`.
+ */
 function extractBannerImage(titleImg: string, staticDir: string): ImageRef | null {
   if (!titleImg) return null;
   const urlDir = staticDir.replace(/^static\//, "");
@@ -64,6 +92,12 @@ function extractBannerImage(titleImg: string, staticDir: string): ImageRef | nul
   return null;
 }
 
+/**
+ * Resolves a SiYuan icon attribute into a displayable string.
+ *
+ * @param raw Raw icon attribute value.
+ * @returns The decoded icon string or the original value.
+ */
 export function resolveIcon(raw: string): string {
   if (!raw) return "";
   const trimmed = raw.trim();
@@ -78,7 +112,12 @@ export function resolveIcon(raw: string): string {
   return raw;
 }
 
-
+/**
+ * Removes SiYuan-specific Markdown constructs that should not reach Hugo.
+ *
+ * @param raw Raw exported Markdown.
+ * @returns Cleaned Markdown ready for Hugo conversion.
+ */
 export function cleanSiYuanMarkdown(raw: string): string {
   let md = raw;
 
@@ -93,6 +132,12 @@ export function cleanSiYuanMarkdown(raw: string): string {
   return md.trim();
 }
 
+/**
+ * Parses SiYuan IAL tag strings into normalized tag arrays.
+ *
+ * @param ialTags Raw tag string.
+ * @returns Normalized tag values.
+ */
 function parseIALTags(ialTags: string): string[] {
   if (!ialTags) return [];
   return ialTags
@@ -101,6 +146,12 @@ function parseIALTags(ialTags: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Serializes front matter into YAML.
+ *
+ * @param fm Front matter object.
+ * @returns YAML front matter block.
+ */
 function toYAML(fm: FrontMatter): string {
   const lines: string[] = ["---"];
 
@@ -141,6 +192,16 @@ function toYAML(fm: FrontMatter): string {
   return lines.join("\n");
 }
 
+/**
+ * Converts a SiYuan export into a Hugo-ready document model.
+ *
+ * @param docId SiYuan document identifier.
+ * @param rawMarkdown Raw exported Markdown.
+ * @param docName Fallback document name.
+ * @param ial SiYuan block attributes.
+ * @param config Active Hugo publishing configuration.
+ * @returns Converted front matter, body, and image references.
+ */
 export async function convertDoc(
   docId: string,
   rawMarkdown: string,
@@ -206,11 +267,23 @@ export async function convertDoc(
   return { frontMatter, body, images };
 }
 
+/**
+ * Renders a converted document into a complete Markdown file.
+ *
+ * @param doc Converted document.
+ * @returns Markdown file content with YAML front matter.
+ */
 export function renderMarkdownFile(doc: ConvertedDoc): string {
   const yaml = toYAML(doc.frontMatter);
   return `${yaml}\n\n${doc.body}\n`;
 }
 
+/**
+ * Converts a SiYuan timestamp string to an ISO-like datetime string.
+ *
+ * @param raw SiYuan timestamp in `YYYYMMDDhhmmss` format.
+ * @returns A formatted datetime string.
+ */
 function formatSiYuanDate(raw: string): string {
   if (raw.length !== 14) return new Date().toISOString();
   const y = raw.slice(0, 4);

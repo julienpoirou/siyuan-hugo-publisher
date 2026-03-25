@@ -1,3 +1,9 @@
+/**
+ * Computes a short SHA-256 fingerprint for sync comparisons.
+ *
+ * @param content Source content to hash.
+ * @returns The first 16 hex characters of the SHA-256 digest.
+ */
 export async function hashContent(content: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(content);
