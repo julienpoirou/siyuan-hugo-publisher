@@ -5,6 +5,11 @@
 [![Release](https://img.shields.io/github/v/release/julienpoirou/siyuan-hugo-publisher?include_prereleases&sort=semver)](https://github.com/julienpoirou/siyuan-hugo-publisher/releases)
 [![License](https://img.shields.io/github/license/julienpoirou/siyuan-hugo-publisher.svg)](LICENSE.md)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-%23FE5196.svg)](https://www.conventionalcommits.org)
+[![Downloads](https://img.shields.io/github/downloads/julienpoirou/siyuan-hugo-publisher/total)](https://github.com/julienpoirou/siyuan-hugo-publisher/releases)
+
+<p align="center">
+  <img src="./logo.png" alt="SiYuan Hugo Publisher logo" width="160" height="160">
+</p>
 
 SiYuan plugin to publish notes to a Hugo site with front matter generation, image syncing, auto-sync hooks, and orphan-aware cleanup.
 
