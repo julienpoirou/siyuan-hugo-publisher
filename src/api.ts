@@ -17,6 +17,18 @@ async function request<T>(endpoint: string, body: unknown): Promise<T> {
 }
 
 /**
+ * Validates a SiYuan JSON response used by file mutation endpoints.
+ *
+ * @param endpoint API path used for the mutation.
+ * @param res Raw HTTP response.
+ */
+async function ensureMutationSucceeded(endpoint: string, res: Response): Promise<void> {
+  if (!res.ok) throw new Error(`${endpoint} HTTP ${res.status}`);
+  const json = await res.json();
+  if (json.code !== 0) throw new Error(`${endpoint}: ${json.msg}`);
+}
+
+/**
  * Exports a SiYuan document as Markdown.
  *
  * @param id Document identifier.
@@ -72,9 +84,7 @@ export async function putFile(path: string, content: string): Promise<void> {
   form.append("file", blob, "file");
 
   const res = await getSiyuanHttpClient().postForm("/api/file/putFile", form);
-  if (!res.ok) throw new Error(`putFile HTTP ${res.status}`);
-  const json = await res.json();
-  if (json.code !== 0) throw new Error(`putFile: ${json.msg}`);
+  await ensureMutationSucceeded("putFile", res);
 }
 
 /**
@@ -91,9 +101,7 @@ export async function putFileBlob(path: string, blob: Blob): Promise<void> {
   form.append("file", blob, "file");
 
   const res = await getSiyuanHttpClient().postForm("/api/file/putFile", form);
-  if (!res.ok) throw new Error(`putFileBlob HTTP ${res.status}`);
-  const json = await res.json();
-  if (json.code !== 0) throw new Error(`putFileBlob: ${json.msg}`);
+  await ensureMutationSucceeded("putFileBlob", res);
 }
 
 /**
@@ -108,7 +116,7 @@ export async function makeDir(path: string): Promise<void> {
   form.append("modTime", String(Math.floor(Date.now() / 1000)));
 
   const res = await getSiyuanHttpClient().postForm("/api/file/putFile", form);
-  if (!res.ok) throw new Error(`makeDir HTTP ${res.status}`);
+  await ensureMutationSucceeded("makeDir", res);
 }
 
 /**
@@ -141,7 +149,7 @@ export async function readFileText(path: string): Promise<string> {
  */
 export async function removeFile(path: string): Promise<void> {
   const res = await getSiyuanHttpClient().postJson("/api/file/removeFile", { path });
-  if (!res.ok) throw new Error(`removeFile HTTP ${res.status}`);
+  await ensureMutationSucceeded("removeFile", res);
 }
 
 /**
