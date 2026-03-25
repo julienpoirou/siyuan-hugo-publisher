@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.2.0...v1.2.1) (2026-03-25)
+
+
+### Corrections 🐛
+
+* **repo:** Add bazaar css asset, compress media, and harden publish errors ([13ad856](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/13ad856e573b7ae70d37a209273a369b7f4b0ca9))
+
 ## [1.2.0](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.1.0...v1.2.0) (2026-03-25)
 
 
