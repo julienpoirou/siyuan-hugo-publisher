@@ -76,6 +76,31 @@ async function testDocumentConversion() {
 }
 
 /**
+ * Verifies support for Markdown image titles and URL-encoded asset paths.
+ *
+ * @returns {Promise<void>}
+ */
+async function testImagePathNormalization() {
+  const result = await convertDoc(
+    "20240115143022-image-paths",
+    String.raw`![A](assets/My%20Photo%20%281%29.png "caption")`,
+    "Doc",
+    {
+      title: "Doc",
+      "title-img": String.raw`url("assets/Banner%20Image.png?cache=1#hero")`,
+    },
+    config
+  );
+
+  assert.match(result.body, /!\[A\]\(\/images\/My Photo \(1\)\.png\)/);
+  assert.equal(result.frontMatter.cover, "/images/Banner Image.png");
+  assert.deepEqual(
+    result.images.map((image) => image.siyuanPath),
+    ["assets/My Photo (1).png", "assets/Banner Image.png"]
+  );
+}
+
+/**
  * Verifies that external and CSS-based covers are preserved.
  *
  * @returns {Promise<void>}
@@ -188,6 +213,8 @@ test("convertDoc rewrites images and emits expected front matter fields", testDo
 test("convertDoc keeps external cover URLs and CSS cover styles", testCoverPreservation);
 
 test("convertDoc removes duplicate banner image from markdown body", testBannerDeduplication);
+
+test("convertDoc normalizes titled and encoded asset paths", testImagePathNormalization);
 
 test("convertDoc falls back to doc id when title slugifies to empty", testNonLatinSlugFallback);
 
