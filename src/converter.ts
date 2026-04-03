@@ -288,7 +288,29 @@ export async function convertDoc(
  */
 export function renderMarkdownFile(doc: ConvertedDoc): string {
   const yaml = toYAML(doc.frontMatter);
-  return `${yaml}\n\n${doc.body}\n`;
+  const raw = `${yaml}\n\n${doc.body}\n`;
+  return escapeHugoShortcodes(raw);
+}
+
+/**
+ * Escapes Hugo shortcode delimiters in exported Markdown content.
+ *
+ * SiYuan content may contain sequences such as `{{<` (e.g. `<kbd>{{</kbd>`)
+ * that Hugo's parser interprets as shortcode delimiters, causing build errors
+ * like "got closing shortcode, but none is open".
+ *
+ * The opening delimiters `{{<` and `{{%` are replaced with their HTML entity
+ * equivalents (`&#123;&#123;<` / `&#123;&#123;%`), and the closing delimiters
+ * `>}}` and `%}}` are escaped accordingly.
+ * HTML entities render identically in the browser while being invisible to
+ * Hugo's shortcode parser.
+ */
+function escapeHugoShortcodes(content: string): string {
+  return content
+    .replace(/\{\{</g, "&#123;&#123;<")
+    .replace(/\{\{%/g, "&#123;&#123;%")
+    .replace(/>}}/g, ">&#125;&#125;")
+    .replace(/%}}/g, "%&#125;&#125;");
 }
 
 /**
