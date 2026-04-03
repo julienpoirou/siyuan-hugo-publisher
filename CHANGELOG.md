@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.2.3...v1.3.0) (2026-04-03)
+
+
+### Features ✨
+
+* **settings:** Add directory explorer for Hugo project path ([#16](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/16)) ([e652495](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/e652495361ea8aff5be195955af4d783dc5cec26))
+
 ## [1.2.3](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.2.2...v1.2.3) (2026-04-03)
 
 
