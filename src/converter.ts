@@ -162,16 +162,22 @@ function parseIALTags(ialTags: string): string[] {
 function toYAML(fm: FrontMatter): string {
   const lines: string[] = ["---"];
 
+  const escapeYamlDoubleQuoted = (value: string): string => {
+    return value
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"');
+  };
+
   const add = (key: string, value: unknown) => {
     if (value === undefined || value === null) return;
     if (typeof value === "string") {
-      lines.push(`${key}: "${value.replace(/"/g, '\\"')}"`);
+      lines.push(`${key}: "${escapeYamlDoubleQuoted(value)}"`);
     } else if (typeof value === "boolean") {
       lines.push(`${key}: ${value}`);
     } else if (Array.isArray(value)) {
       if (value.length === 0) return;
       lines.push(`${key}:`);
-      value.forEach((v) => lines.push(`  - "${String(v).replace(/"/g, '\\"')}"`));
+      value.forEach((v) => lines.push(`  - "${escapeYamlDoubleQuoted(String(v))}"`));
     } else {
       lines.push(`${key}: ${value}`);
     }
