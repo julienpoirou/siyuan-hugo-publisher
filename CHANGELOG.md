@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.2.1...v1.2.2) (2026-04-03)
+
+
+### Corrections 🐛
+
+* **converter:** Incomplete string escaping ([#12](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/12)) ([2defea4](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/2defea46ac214bdd865a928604fef9c2fbbff4e2))
+
 ## [1.2.1](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.2.0...v1.2.1) (2026-03-25)
 
 
