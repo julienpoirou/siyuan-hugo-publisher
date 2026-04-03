@@ -3,6 +3,7 @@ import { Setting } from "siyuan";
 import { DEFAULT_CONFIG, type HugoConfig } from "./types";
 import { saveConfig } from "./settings";
 import { validateHugoProject } from "./image-handler";
+import { openPathExplorer } from "./path-explorer";
 
 interface SetupPluginSettingsOptions {
   getConfig: () => HugoConfig;
@@ -176,28 +177,46 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
     description: "Ex: /data/hugo-site or /siyuan/workspace/data/hugo-site",
     createActionElement: () => {
       const wrap = document.createElement("div");
-      wrap.className = "fn__flex fn__flex-1";
-      wrap.style.gap = "8px";
+      wrap.className = "shp-path-field fn__flex fn__flex-1";
 
       const input = createTextField(fields, "hugoProjectPath", getConfig, scheduleSave, "/data/hugo-site");
-      const button = document.createElement("button");
-      button.className = "b3-button b3-button--outline";
-      button.textContent = "Test";
-      button.style.whiteSpace = "nowrap";
-      button.addEventListener("click", async () => {
-        button.disabled = true;
-        button.textContent = "…";
+      input.classList.add("shp-path-field__input");
+
+      const inputWrap = document.createElement("div");
+      inputWrap.className = "shp-path-field__input-wrap";
+      inputWrap.appendChild(input);
+
+      const browseBtn = document.createElement("button");
+      browseBtn.className = "b3-button b3-button--outline";
+      browseBtn.textContent = "Browse";
+      browseBtn.style.whiteSpace = "nowrap";
+      browseBtn.addEventListener("click", () => {
+        openPathExplorer(input.value.trim(), (selectedPath) => {
+          input.value = selectedPath;
+          // Trigger change to persist the new value
+          input.dispatchEvent(new Event("change"));
+        });
+      });
+
+      const testBtn = document.createElement("button");
+      testBtn.className = "b3-button b3-button--outline";
+      testBtn.textContent = "Test";
+      testBtn.style.whiteSpace = "nowrap";
+      testBtn.addEventListener("click", async () => {
+        testBtn.disabled = true;
+        testBtn.textContent = "…";
         const result = await validateHugoProject({ ...getConfig(), hugoProjectPath: input.value.trim() });
-        button.textContent = result.valid ? "OK" : "KO";
-        button.title = result.valid ? "" : (result.error ?? "");
+        testBtn.textContent = result.valid ? "OK" : "KO";
+        testBtn.title = result.valid ? "" : (result.error ?? "");
         setTimeout(() => {
-          button.textContent = "Test";
-          button.disabled = false;
+          testBtn.textContent = "Test";
+          testBtn.disabled = false;
         }, 2500);
       });
 
-      wrap.appendChild(input);
-      wrap.appendChild(button);
+      wrap.appendChild(inputWrap);
+      wrap.appendChild(browseBtn);
+      wrap.appendChild(testBtn);
       return wrap;
     },
   });
