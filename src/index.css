@@ -1,1 +1,20 @@
 /* Intentionally minimal: SiYuan Bazaar packages are expected to include index.css. */
+
+.shp-path-field {
+  gap: 8px;
+  align-items: center;
+  overflow: visible;
+}
+
+.shp-path-field__input-wrap {
+  flex: 1;
+  min-width: 0;
+  overflow: visible;
+  padding: 3px;
+  margin: -3px;
+}
+
+.shp-path-field__input {
+  width: 100%;
+  box-sizing: border-box;
+}
