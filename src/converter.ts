@@ -42,6 +42,27 @@ function generateSlug(title: string, docId: string, mode: HugoConfig["slugMode"]
 }
 
 /**
+ * Normalizes a raw SiYuan asset reference extracted from Markdown or metadata.
+ *
+ * Handles optional Markdown image titles, query/hash suffixes, and URL-encoded
+ * paths so downstream file API calls receive a clean workspace asset path.
+ *
+ * @param rawAssetPath Raw asset reference.
+ * @returns Sanitized `assets/...` path.
+ */
+function normalizeAssetPath(rawAssetPath: string): string {
+  const trimmed = rawAssetPath.trim().replace(/^<|>$/g, "");
+  const titledMatch = trimmed.match(/^(assets\/\S+?)(?:\s+(?:"[^"]*"|'[^']*'))$/);
+  const assetWithSuffixes = titledMatch ? titledMatch[1] : trimmed;
+  const assetWithoutSuffixes = assetWithSuffixes.split("#")[0].split("?")[0];
+  try {
+    return decodeURI(assetWithoutSuffixes).replace(/^\/+/, "");
+  } catch {
+    return assetWithoutSuffixes.replace(/^\/+/, "");
+  }
+}
+
+/**
  * Rewrites embedded SiYuan asset images to Hugo static paths.
  *
  * @param markdown Source Markdown.
@@ -50,16 +71,19 @@ function generateSlug(title: string, docId: string, mode: HugoConfig["slugMode"]
  */
 function extractImages(markdown: string, staticDir: string): { markdown: string; images: ImageRef[] } {
   const images: ImageRef[] = [];
-  const imgRegex = /!\[([^\]]*)\]\((assets\/[^)]+)\)/g;
+  const imgRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
 
   const urlDir = staticDir.replace(/^static\//, "");
 
-  const processedMarkdown = markdown.replace(imgRegex, (match, alt, src) => {
-    const filename = src.split("/").pop() ?? src;
+  const processedMarkdown = markdown.replace(imgRegex, (match, alt, rawSrc) => {
+    const normalizedSrc = normalizeAssetPath(rawSrc);
+    if (!normalizedSrc.startsWith("assets/")) return match;
+
+    const filename = normalizedSrc.split("/").pop() ?? normalizedSrc;
     const hugoPath = `/${urlDir}/${filename}`;
     const targetPath = `${staticDir.replace(/\/+$/, "")}/${filename}`;
     images.push({
-      siyuanPath: src,
+      siyuanPath: normalizedSrc,
       hugoPath,
       targetPath,
       markdownRef: match,
@@ -81,16 +105,17 @@ function extractBannerImage(titleImg: string, staticDir: string): ImageRef | nul
   if (!titleImg) return null;
   const urlDir = staticDir.replace(/^static\//, "");
   const makeRef = (assetPath: string): ImageRef => {
-    const filename = assetPath.split("/").pop() ?? assetPath;
+    const normalizedPath = normalizeAssetPath(assetPath);
+    const filename = normalizedPath.split("/").pop() ?? normalizedPath;
     return {
-      siyuanPath: assetPath,
+      siyuanPath: normalizedPath,
       hugoPath: `/${urlDir}/${filename}`,
       targetPath: `${staticDir.replace(/\/+$/, "")}/${filename}`,
       markdownRef: "",
     };
   };
 
-  const src = titleImg.replace(/^\//, "");
+  const src = normalizeAssetPath(titleImg.replace(/^\//, ""));
   if (src.startsWith("assets/")) return makeRef(src);
 
   const bgMatch = titleImg.match(/url\(["']?(assets\/[^"')]+)["']?\)/);
