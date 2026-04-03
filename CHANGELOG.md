@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.3](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.2.2...v1.2.3) (2026-04-03)
+
+
+### Corrections 🐛
+
+* **converter:** Escape Hugo shortcode delimiters in exported Markdown ([#14](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/14)) ([df8e101](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/df8e1018091344a581919e7cdd1b902f1b167e4e))
+
 ## [1.2.2](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.2.1...v1.2.2) (2026-04-03)
 
 
