@@ -1,6 +1,6 @@
 import type { SyncStatus, DocSyncEntry, ImageRefStore, SyncMirrorStore } from "./types";
 import { hashContent } from "./hash";
-import { cleanSiYuanMarkdown, resolveIcon } from "./converter";
+import { buildSyncSignature, cleanSiYuanMarkdown } from "./converter";
 import { getBlockAttrs, setBlockAttrs } from "./api";
 import { createLogger } from "./logger";
 import { migrateImageRefStore, migrateSyncMirrorStore, wrapVersionedPayload } from "./data-migrations";
@@ -234,9 +234,7 @@ export async function computeSyncStatus(
   } catch (err) {
     log.warn(`Unable to read block attrs for sync hash on ${docId}`, err);
   }
-  const currentHash = await hashContent(
-    `${cleaned}\n${resolveIcon(ial["icon"] ?? "")}\n${ial["title-img"] ?? ""}`
-  );
+  const currentHash = await hashContent(buildSyncSignature(cleaned, ial));
 
   const entry = await getSyncEntry(docId);
   if (!entry) return { status: "not-published", currentHash };

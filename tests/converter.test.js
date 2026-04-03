@@ -4,8 +4,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const {
+  buildSyncSignature,
   cleanSiYuanMarkdown,
   convertDoc,
+  normalizeTitleImageForHash,
   renderMarkdownFile,
   resolveIcon,
 } = require("../.test-build/src/converter.js");
@@ -20,6 +22,7 @@ const config = {
   autoSyncOnSave: false,
   autoCleanOrphans: false,
   language: "",
+  badgeRefreshDelayMs: 400,
 };
 
 /**
@@ -174,6 +177,48 @@ async function testNonLatinSlugFallback() {
 }
 
 /**
+ * Verifies deterministic date fallbacks when SiYuan timestamps are missing.
+ *
+ * @returns {Promise<void>}
+ */
+async function testDeterministicTimestampFallbacks() {
+  const result = await convertDoc(
+    "20240115143022-nodates",
+    "Body",
+    "Doc",
+    {
+      title: "Doc",
+    },
+    config
+  );
+
+  assert.equal(result.frontMatter.date, "2024-01-15T14:30:22");
+  assert.equal(result.frontMatter.lastmod, "2024-01-15T14:30:22");
+}
+
+/**
+ * Verifies stable hashing normalization for title images.
+ */
+function testTitleImageHashNormalization() {
+  assert.equal(
+    normalizeTitleImageForHash(String.raw`url("assets/Banner%20Image.png?cache=1#hero")`),
+    "assets/Banner Image.png"
+  );
+  assert.equal(
+    normalizeTitleImageForHash("https://example.com/cover.png?cache=1#hero"),
+    "https://example.com/cover.png?cache=1"
+  );
+  assert.equal(
+    buildSyncSignature("Body", { icon: "1f389", "title-img": String.raw`url("assets/Banner%20Image.png?cache=1#hero")` }),
+    "Body\n\n\n"
+  );
+  assert.equal(
+    buildSyncSignature("Body", { title: "Doc", tags: "#a #b", categories: "cat" }),
+    "Body\nDoc\na,b\ncat"
+  );
+}
+
+/**
  * Verifies that JSON conversion fixtures still match the converter output.
  *
  * @returns {Promise<void>}
@@ -217,5 +262,9 @@ test("convertDoc removes duplicate banner image from markdown body", testBannerD
 test("convertDoc normalizes titled and encoded asset paths", testImagePathNormalization);
 
 test("convertDoc falls back to doc id when title slugifies to empty", testNonLatinSlugFallback);
+
+test("convertDoc uses deterministic fallbacks for missing timestamps", testDeterministicTimestampFallbacks);
+
+test("title image values are normalized for sync hashing", testTitleImageHashNormalization);
 
 test("converter fixtures remain stable", testConverterFixtures);
