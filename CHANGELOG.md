@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.3.1](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.3.0...v1.3.1) (2026-04-03)
+
+
+### Corrections 🐛
+
+* **converter:** Escape Hugo shortcode delimiters in exported Markdown ([#18](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/18)) ([f3bb943](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/f3bb9437d1f906ffce43e55302704d8f9e673d90))
+
+## [1.3.0](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.2.3...v1.3.0) (2026-04-03)
+
+
+### Features ✨
+
+* **settings:** Add directory explorer for Hugo project path ([#16](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/16)) ([e652495](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/e652495361ea8aff5be195955af4d783dc5cec26))
+
+## [1.2.3](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.2.2...v1.2.3) (2026-04-03)
+
+
+### Corrections 🐛
+
+* **converter:** Escape Hugo shortcode delimiters in exported Markdown ([#14](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/14)) ([df8e101](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/df8e1018091344a581919e7cdd1b902f1b167e4e))
+
 ## [1.2.2](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.2.1...v1.2.2) (2026-04-03)
 
 
