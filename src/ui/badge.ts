@@ -18,7 +18,7 @@ const STATUS_CONFIG: Record<SyncStatus, { emoji: string; label: string; color: s
 function applyStatus(badge: HTMLElement, status: SyncStatus, lastSync?: string): void {
   const cfg = STATUS_CONFIG[status];
   const tooltip = lastSync
-    ? `Hugo: ${cfg.label}\nDernier sync: ${new Date(lastSync).toLocaleString()}`
+    ? `Hugo: ${cfg.label}\nLast sync: ${new Date(lastSync).toLocaleString()}`
     : `Hugo: ${cfg.label}`;
   badge.title = tooltip;
   badge.setAttribute("aria-label", tooltip);

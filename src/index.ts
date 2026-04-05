@@ -1,7 +1,7 @@
 import { Plugin } from "siyuan";
 
 import type { HugoConfig } from "./types";
-import { getMirroredDocIds, initSyncState } from "./sync-state";
+import { getMirroredDocIds, getSyncEntry, initSyncState } from "./sync-state";
 import { initSettings, loadConfig } from "./settings";
 import { publishDoc as doPublish, unpublishDoc as doUnpublish, getDocStatus, reconcileOrphanDocs } from "./publisher";
 import { exportMdContent } from "./api";
@@ -29,6 +29,7 @@ const BACKGROUND_RECONCILE_INTERVAL_MS = 30000;
 export default class HugoPublisherPlugin extends Plugin {
   private config: HugoConfig | null = null;
   private statusCache = new Map<string, string>();
+  private editorFingerprints = new Map<string, string>();
   private tabObserver: MutationObserver | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -58,6 +59,7 @@ export default class HugoPublisherPlugin extends Plugin {
         autoSyncOnSave: false,
         autoCleanOrphans: false,
         language: "",
+        badgeRefreshDelayMs: 400,
       },
       onConfigChange: (config) => {
         this.config = config;
@@ -164,6 +166,7 @@ export default class HugoPublisherPlugin extends Plugin {
       const result = await doUnpublish(docId, this.config);
       if (result.success) {
         this.statusCache.set(docId, "not-published");
+        this.editorFingerprints.delete(docId);
         upsertBadge(protyleEl ?? null, docId, "not-published");
         if (!silent) showToast(`Dépublié : ${result.hugoPath}`, "success", 4000);
       } else if (!silent) {
@@ -204,6 +207,7 @@ export default class HugoPublisherPlugin extends Plugin {
       const now = new Date().toISOString();
       this.statusCache.set(docId, "synced");
       upsertBadge(protyleEl ?? null, docId, "synced", now);
+      this.captureEditorFingerprint(docId, protyleEl);
     } else if (!silent) {
       showToast(result.message, "error", 6000);
     }
@@ -221,6 +225,9 @@ export default class HugoPublisherPlugin extends Plugin {
       const result = await getDocStatus(docId, this.config);
       upsertBadge(protyleEl ?? null, docId, result.status, result.lastSync);
       this.statusCache.set(docId, result.status);
+      if (result.status === "synced") {
+        this.captureEditorFingerprint(docId, protyleEl);
+      }
     } catch (err) {
       log.warn(`Status refresh failed for ${docId}`, err);
     }
@@ -235,14 +242,108 @@ export default class HugoPublisherPlugin extends Plugin {
   private scheduleRefresh(docId: string, protyleEl?: HTMLElement): void {
     const existing = this.refreshTimers.get(docId);
     if (existing) clearTimeout(existing);
+    const delayMs = Math.max(100, this.config?.badgeRefreshDelayMs ?? 400);
     const timer = setTimeout(async () => {
       this.refreshTimers.delete(docId);
-      await this.refreshDocStatus(docId, protyleEl);
+      await this.refreshEditorDirtyState(docId, protyleEl);
       if (this.config?.autoSyncOnSave && this.statusCache.get(docId) === "modified") {
         await this.publishDoc(docId, protyleEl, true);
       }
-    }, 1500);
+    }, delayMs);
     this.refreshTimers.set(docId, timer);
+  }
+
+  /**
+   * Updates badge state for an edited document using a local editor fingerprint.
+   *
+   * The SiYuan export API is unstable for some large documents, so during
+   * active editing we compare the current editor snapshot against the snapshot
+   * captured right after a successful publish.
+   *
+   * @param docId SiYuan document identifier.
+   * @param protyleEl Active protyle element when available.
+   */
+  private async refreshEditorDirtyState(docId: string, protyleEl?: HTMLElement): Promise<void> {
+    const entry = await getSyncEntry(docId);
+    if (!entry?.hugoPath || !protyleEl) {
+      await this.refreshDocStatus(docId, protyleEl);
+      return;
+    }
+
+    const baseline = this.editorFingerprints.get(docId);
+    const current = this.computeEditorFingerprint(protyleEl);
+    if (!current) {
+      await this.refreshDocStatus(docId, protyleEl);
+      return;
+    }
+    if (!baseline) {
+      this.editorFingerprints.set(docId, current);
+      await this.refreshDocStatus(docId, protyleEl);
+      return;
+    }
+
+    const nextStatus = current === baseline ? "synced" : "modified";
+    upsertBadge(protyleEl ?? null, docId, nextStatus, entry.lastSync);
+    this.statusCache.set(docId, nextStatus);
+  }
+
+  /**
+   * Stores the current editor fingerprint as the synced baseline for a doc.
+   *
+   * @param docId SiYuan document identifier.
+   * @param protyleEl Active protyle element when available.
+   */
+  private captureEditorFingerprint(docId: string, protyleEl?: HTMLElement): void {
+    if (!protyleEl) return;
+    const fingerprint = this.computeEditorFingerprint(protyleEl);
+    if (fingerprint) {
+      this.editorFingerprints.set(docId, fingerprint);
+    }
+  }
+
+  /**
+   * Creates a stable local fingerprint from the visible editor state.
+   *
+   * @param protyleEl Active protyle root element.
+   * @returns Fingerprint string or an empty string when unavailable.
+   */
+  private computeEditorFingerprint(protyleEl: HTMLElement): string {
+    const title = protyleEl.querySelector<HTMLInputElement | HTMLTextAreaElement>(".protyle-title__input")?.value ?? "";
+    const wysiwyg = protyleEl.querySelector<HTMLElement>(".protyle-wysiwyg");
+    const body = this.serializeEditorFingerprint(wysiwyg);
+    return `${title}\n${body}`;
+  }
+
+  /**
+   * Serializes the editor DOM into a stable fingerprint.
+   *
+   * @param root Editor root element.
+   * @returns Stable serialized representation.
+   */
+  private serializeEditorFingerprint(root: HTMLElement | null | undefined): string {
+    if (!root) return "";
+    return Array.from(root.childNodes).map((node) => this.serializeFingerprintNode(node)).join("");
+  }
+
+  /**
+   * Converts a DOM node into a stable fingerprint fragment.
+   *
+   * @param node DOM node to serialize.
+   * @returns Stable fragment string.
+   */
+  private serializeFingerprintNode(node: Node): string {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return (node.textContent ?? "")
+        .replace(/\u200b/g, "")
+        .replace(/\uFEFF/g, "");
+    }
+
+    if (!(node instanceof HTMLElement)) return "";
+    if (node.tagName === "WBR") return "";
+
+    const tag = node.tagName.toLowerCase();
+    const children = Array.from(node.childNodes).map((child) => this.serializeFingerprintNode(child)).join("");
+    return `<${tag}>${children}</${tag}>`;
   }
 
   /**
@@ -263,7 +364,10 @@ export default class HugoPublisherPlugin extends Plugin {
       refreshDocStatus: (docId, protyleEl) => this.refreshDocStatus(docId, protyleEl),
       scheduleMissingDocReconcile: () => this.scheduleMissingDocReconcile(),
       scheduleRefresh: (docId, protyleEl) => this.scheduleRefresh(docId, protyleEl),
-      deleteStatus: (docId) => this.statusCache.delete(docId),
+      deleteStatus: (docId) => {
+        this.statusCache.delete(docId);
+        this.editorFingerprints.delete(docId);
+      },
       clearRefreshTimer: (docId) => {
         const timer = this.refreshTimers.get(docId);
         if (timer) {

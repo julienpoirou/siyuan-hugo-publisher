@@ -15,9 +15,11 @@ function testConfigMigration() {
   const legacy = migrateConfig({ hugoProjectPath: "/data/hugo-site", slugMode: "id" });
   assert.equal(legacy.hugoProjectPath, "/data/hugo-site");
   assert.equal(legacy.slugMode, "id");
+  assert.equal(legacy.badgeRefreshDelayMs, 400);
 
   const versioned = migrateConfig(wrapVersionedPayload({ hugoProjectPath: "/data/other-site" }));
   assert.equal(versioned.hugoProjectPath, "/data/other-site");
+  assert.equal(versioned.badgeRefreshDelayMs, 400);
 }
 
 /**

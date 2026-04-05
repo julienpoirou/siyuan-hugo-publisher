@@ -86,6 +86,25 @@ function uniquePaths(paths: string[]): string[] {
 }
 
 /**
+ * Normalizes rendered Markdown before status comparison.
+ *
+ * `lastmod` can drift after publish because writing block attributes in SiYuan
+ * may update the document metadata timestamp without changing the actual note
+ * content. That should not flip a freshly synced badge back to `Modified`.
+ *
+ * @param content Rendered Markdown file content.
+ * @returns Comparable content with volatile metadata removed.
+ */
+export function normalizeRenderedContentForComparison(content: string): string {
+  return content
+    .replace(/^lastmod:\s*"[^"]*"\r?$\n?/m, "")
+    .replace(/^hash:\s*"[^"]*"\r?$\n?/m, "")
+    .replace(/&#123;&#123;/g, "{{")
+    .replace(/>&#125;&#125;/g, ">}}")
+    .replace(/%&#125;&#125;/g, "%}}");
+}
+
+/**
  * Derives common Hugo public output paths generated from a content file.
  *
  * @param hugoRelPath Relative Hugo content path.
@@ -279,13 +298,33 @@ export async function publishDoc(
   const orphanedImages = await reconcileImageRefsForDoc(docId, previousEntry?.images ?? [], publishedImages);
   await removePublishedFiles(orphanedImages, config);
 
+  const lastSync = new Date().toISOString();
+  let stableHash = converted.frontMatter.hash;
+
   await setSyncEntry(docId, {
-    hash: converted.frontMatter.hash,
-    lastSync: new Date().toISOString(),
+    hash: stableHash,
+    lastSync,
     hugoPath: hugoRelPath,
     slug,
     images: publishedImages,
   });
+
+  try {
+    const refreshed = await exportMdContent(docId);
+    const refreshedStatus = await computeSyncStatus(docId, refreshed.content);
+    stableHash = refreshedStatus.currentHash;
+    if (stableHash !== converted.frontMatter.hash) {
+      await setSyncEntry(docId, {
+        hash: stableHash,
+        lastSync,
+        hugoPath: hugoRelPath,
+        slug,
+        images: publishedImages,
+      });
+    }
+  } catch (err) {
+    log.warn(`Unable to stabilize sync hash after publish for ${docId}`, err);
+  }
 
   try {
     await triggerHugoRefresh(config);
@@ -344,17 +383,9 @@ export async function unpublishDoc(docId: string, config: HugoConfig): Promise<U
  * @returns The current sync status and related metadata.
  */
 export async function getDocStatus(docId: string, config: HugoConfig): Promise<StatusResult> {
-  let exported: { hPath: string; content: string };
-  try {
-    exported = await exportMdContent(docId);
-  } catch {
-    return { status: "not-published", currentHash: "" };
-  }
-
   const entry = await getSyncEntry(docId);
-  const { status, currentHash } = await computeSyncStatus(docId, exported.content);
   if (!entry?.hugoPath) {
-    return { status, currentHash };
+    return { status: "not-published", currentHash: "" };
   }
 
   const hugoPath = `${toWorkspacePath(config.hugoProjectPath)}/${entry.hugoPath}`;
@@ -362,40 +393,15 @@ export async function getDocStatus(docId: string, config: HugoConfig): Promise<S
   if (!exists) {
     return {
       status: "not-published",
-      currentHash,
-      lastSync: entry.lastSync,
-      hugoPath: entry.hugoPath,
-    };
-  }
-
-  let ial: Record<string, string> = {};
-  try {
-    ial = await getBlockAttrs(docId);
-  } catch (err) {
-    log.warn(`Unable to read block attributes while computing status for ${docId}`, err);
-  }
-
-  const docName = exported.hPath.split("/").pop() ?? docId;
-  const converted = await convertDoc(docId, exported.content, docName, ial, config);
-  converted.frontMatter.slug = entry.slug;
-  const expectedContent = renderMarkdownFile(converted);
-
-  let remoteContent = "";
-  try {
-    remoteContent = await readFileText(hugoPath);
-  } catch (err) {
-    log.warn(`Unable to read published content for ${docId} at ${hugoPath}`, err);
-    return {
-      status: "modified",
-      currentHash,
+      currentHash: entry.hash,
       lastSync: entry.lastSync,
       hugoPath: entry.hugoPath,
     };
   }
 
   return {
-    status: remoteContent === expectedContent ? "synced" : status,
-    currentHash,
+    status: "synced",
+    currentHash: entry.hash,
     lastSync: entry.lastSync,
     hugoPath: entry.hugoPath,
   };

@@ -42,6 +42,17 @@ function generateSlug(title: string, docId: string, mode: HugoConfig["slugMode"]
 }
 
 /**
+ * Extracts the timestamp prefix embedded in a SiYuan document identifier.
+ *
+ * @param docId SiYuan document identifier.
+ * @returns A `YYYYMMDDhhmmss` timestamp or an empty string.
+ */
+function extractTimestampFromDocId(docId: string): string {
+  const match = docId.match(/^(\d{14})-/);
+  return match?.[1] ?? "";
+}
+
+/**
  * Normalizes a raw SiYuan asset reference extracted from Markdown or metadata.
  *
  * Handles optional Markdown image titles, query/hash suffixes, and URL-encoded
@@ -60,6 +71,51 @@ function normalizeAssetPath(rawAssetPath: string): string {
   } catch {
     return assetWithoutSuffixes.replace(/^\/+/, "");
   }
+}
+
+/**
+ * Normalizes the title-image attribute for stable sync hashing.
+ *
+ * Asset-backed covers are reduced to a normalized `assets/...` path. External
+ * URLs and CSS background values are trimmed so insignificant whitespace does
+ * not affect the hash.
+ *
+ * @param rawTitleImage Raw `title-img` attribute value.
+ * @returns Stable representation used for sync hashing.
+ */
+export function normalizeTitleImageForHash(rawTitleImage: string): string {
+  const trimmed = rawTitleImage.trim();
+  if (!trimmed) return "";
+
+  const bgMatch = trimmed.match(/url\(["']?(assets\/[^"')]+)["']?\)/);
+  if (bgMatch) return normalizeAssetPath(bgMatch[1]);
+  if (trimmed.startsWith("assets/") || trimmed.startsWith("/assets/")) {
+    return normalizeAssetPath(trimmed);
+  }
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    try {
+      const url = new URL(trimmed);
+      url.hash = "";
+      return url.toString();
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed.replace(/\s+/g, " ");
+}
+
+/**
+ * Builds the stable content signature used to detect meaningful note changes.
+ *
+ * @param body Cleaned SiYuan markdown body.
+ * @param ial SiYuan block attributes.
+ * @returns Stable signature string.
+ */
+export function buildSyncSignature(body: string, ial: Record<string, string>): string {
+  const title = (ial["title"] ?? "").trim();
+  const tags = parseIALTags(ial["tags"] ?? "").join(",");
+  const categories = parseIALTags(ial["categories"] ?? "").join(",");
+  return `${body}\n${title}\n${tags}\n${categories}`;
 }
 
 /**
@@ -249,7 +305,7 @@ export async function convertDoc(
 ): Promise<ConvertedDoc> {
   let body = cleanSiYuanMarkdown(rawMarkdown);
 
-  const hash = await hashContent(`${body}\n${resolveIcon(ial["icon"] ?? "")}\n${ial["title-img"] ?? ""}`);
+  const hash = await hashContent(buildSyncSignature(body, ial));
 
   const { markdown: bodyWithImages, images } = extractImages(body, config.staticDir);
   body = bodyWithImages;
@@ -257,13 +313,9 @@ export async function convertDoc(
   const tags = parseIALTags(ial["tags"] ?? "");
   const categories = parseIALTags(ial["categories"] ?? "");
 
-  const now = new Date().toISOString();
-  const created = ial["created"]
-    ? formatSiYuanDate(ial["created"])
-    : now;
-  const updated = ial["updated"]
-    ? formatSiYuanDate(ial["updated"])
-    : now;
+  const fallbackTimestamp = extractTimestampFromDocId(docId);
+  const created = formatSiYuanDate(ial["created"] ?? fallbackTimestamp, "1970-01-01T00:00:00");
+  const updated = formatSiYuanDate(ial["updated"] ?? ial["created"] ?? fallbackTimestamp, created);
 
   const title = ial["title"] ?? docName ?? docId;
   const slug = generateSlug(title, docId, config.slugMode);
@@ -344,8 +396,8 @@ function escapeHugoShortcodes(content: string): string {
  * @param raw SiYuan timestamp in `YYYYMMDDhhmmss` format.
  * @returns A formatted datetime string.
  */
-function formatSiYuanDate(raw: string): string {
-  if (raw.length !== 14) return new Date().toISOString();
+function formatSiYuanDate(raw: string, fallback = "1970-01-01T00:00:00"): string {
+  if (raw.length !== 14) return fallback;
   const y = raw.slice(0, 4);
   const mo = raw.slice(4, 6);
   const d = raw.slice(6, 8);

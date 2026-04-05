@@ -51,6 +51,36 @@ function createTextField(
 }
 
 /**
+ * Creates a numeric input bound to a configuration field.
+ *
+ * @param fields Field registry updated with the created element.
+ * @param key Configuration field key.
+ * @param getConfig Callback returning the current config.
+ * @param onChange Change handler used to persist updates.
+ * @param min Minimum allowed value.
+ * @param placeholder Optional placeholder text.
+ * @returns The created numeric input element.
+ */
+function createNumberField(
+  fields: FieldMap,
+  key: string,
+  getConfig: () => HugoConfig,
+  onChange: () => void,
+  min: number,
+  placeholder = ""
+): HTMLInputElement {
+  const el = document.createElement("input");
+  el.type = "number";
+  el.min = String(min);
+  el.className = "b3-text-field fn__flex-1";
+  el.value = String(getConfigValue(getConfig(), key) ?? "");
+  el.placeholder = placeholder;
+  el.addEventListener("change", onChange);
+  fields[key] = el;
+  return el;
+}
+
+/**
  * Creates a checkbox input bound to a boolean configuration field.
  *
  * @param fields Field registry updated with the created element.
@@ -91,6 +121,7 @@ function buildConfigFromFields(fields: FieldMap): HugoConfig {
     defaultDraft: (fields.defaultDraft as HTMLInputElement).checked,
     autoSyncOnSave: (fields.autoSyncOnSave as HTMLInputElement).checked,
     autoCleanOrphans: (fields.autoCleanOrphans as HTMLInputElement).checked,
+    badgeRefreshDelayMs: Math.max(100, Number((fields.badgeRefreshDelayMs as HTMLInputElement).value) || 400),
   };
 }
 
@@ -276,6 +307,12 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
     title: "Auto sync on save",
     description: "Automatically re-publish when the document is saved",
     createActionElement: () => createSwitchField(fields, "autoSyncOnSave", getConfig, scheduleSave),
+  });
+
+  setting.addItem({
+    title: "Badge refresh delay",
+    description: "Debounce delay in ms for Sync/Modified detection",
+    createActionElement: () => createNumberField(fields, "badgeRefreshDelayMs", getConfig, scheduleSave, 100, "400"),
   });
 
   setting.addItem({
