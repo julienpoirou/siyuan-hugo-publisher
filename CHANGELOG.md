@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.3.2...v1.4.0) (2026-04-05)
+
+
+### Features ✨
+
+* **publisher:** Mirror SiYuan doc tree in Hugo content directory ([#22](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/22)) ([a2cf474](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/a2cf474b2da272d4e755955287ea5fb760d40bbc))
+
 ## [1.3.2](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.3.1...v1.3.2) (2026-04-05)
 
 
