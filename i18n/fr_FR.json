@@ -15,5 +15,6 @@
   "defaultDraft": "Publier en brouillon par défaut",
   "autoSyncOnSave": "Synchronisation auto à la sauvegarde",
   "slugMode": "Mode slug",
-  "language": "Préfixe de langue Hugo"
+  "language": "Préfixe de langue Hugo",
+  "preserveDocTree": "Miroir de l'arborescence SiYuan"
 }

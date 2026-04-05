@@ -15,5 +15,6 @@
   "defaultDraft": "默认以草稿发布",
   "autoSyncOnSave": "保存时自动同步",
   "slugMode": "Slug 模式",
-  "language": "Hugo 语言前缀"
+  "language": "Hugo 语言前缀",
+  "preserveDocTree": "镜像文档树结构"
 }

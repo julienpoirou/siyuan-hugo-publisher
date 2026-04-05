@@ -7,7 +7,7 @@ import { hashContent } from "./hash";
  * @param text Source title.
  * @returns A normalized lowercase slug.
  */
-function slugify(text: string): string {
+export function slugify(text: string): string {
   return text
     .toLowerCase()
     .normalize("NFD")

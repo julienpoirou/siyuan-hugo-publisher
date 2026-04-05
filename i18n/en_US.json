@@ -15,5 +15,6 @@
   "defaultDraft": "Publish as draft by default",
   "autoSyncOnSave": "Auto-sync on save",
   "slugMode": "Slug mode",
-  "language": "Hugo language prefix"
+  "language": "Hugo language prefix",
+  "preserveDocTree": "Mirror doc tree structure"
 }

@@ -142,13 +142,19 @@ export async function setSyncEntry(docId: string, entry: DocSyncEntry): Promise<
   mirror[docId] = entry;
   await saveSyncMirrorStore(mirror);
 
-  await setBlockAttrs(docId, {
-    [ATTR_HASH]:     entry.hash,
-    [ATTR_LASTSYNC]: entry.lastSync,
-    [ATTR_PATH]:     entry.hugoPath,
-    [ATTR_SLUG]:     entry.slug,
-    [ATTR_IMAGES]:   JSON.stringify(entry.images),
-  });
+  try {
+    await setBlockAttrs(docId, {
+      [ATTR_HASH]:     entry.hash,
+      [ATTR_LASTSYNC]: entry.lastSync,
+      [ATTR_PATH]:     entry.hugoPath,
+      [ATTR_SLUG]:     entry.slug,
+      [ATTR_IMAGES]:   JSON.stringify(entry.images),
+    });
+  } catch (err) {
+    // Block attrs are a convenience cache; the mirror store is the source of truth.
+    // "tree not found" happens when the document's notebook is not mounted.
+    log.warn(`Unable to write sync attrs for ${docId} (notebook may be unmounted)`, err);
+  }
 }
 
 /**

@@ -9,6 +9,7 @@ interface SetupPluginSettingsOptions {
   getConfig: () => HugoConfig;
   onConfigChange: (config: HugoConfig) => void;
   runOrphanCleanup: () => Promise<void>;
+  onPreserveDocTreeChange: (enabled: boolean) => Promise<void>;
 }
 
 type FieldMap = Record<string, HTMLInputElement | HTMLSelectElement>;
@@ -122,6 +123,7 @@ function buildConfigFromFields(fields: FieldMap): HugoConfig {
     autoSyncOnSave: (fields.autoSyncOnSave as HTMLInputElement).checked,
     autoCleanOrphans: (fields.autoCleanOrphans as HTMLInputElement).checked,
     badgeRefreshDelayMs: Math.max(100, Number((fields.badgeRefreshDelayMs as HTMLInputElement).value) || 400),
+    preserveDocTree: (fields.preserveDocTree as HTMLInputElement).checked,
   };
 }
 
@@ -319,6 +321,30 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
     title: "Auto clean orphans",
     description: "On startup, remove Hugo pages whose SiYuan document no longer exists",
     createActionElement: () => createSwitchField(fields, "autoCleanOrphans", getConfig, scheduleSave),
+  });
+
+  setting.addItem({
+    title: "Mirror doc tree structure",
+    description: "Replicate SiYuan folder hierarchy in Hugo content directory. Toggling reorganizes existing published notes.",
+    createActionElement: () => {
+      const checkbox = createSwitchField(fields, "preserveDocTree", getConfig, scheduleSave);
+      const previousValue = { current: getConfig().preserveDocTree };
+
+      checkbox.addEventListener("change", async () => {
+        const enabled = checkbox.checked;
+        if (enabled === previousValue.current) return;
+        previousValue.current = enabled;
+
+        if (saveTimer) clearTimeout(saveTimer);
+        const nextConfig = buildConfigFromFields(fields);
+        options.onConfigChange(nextConfig);
+        await saveConfig(nextConfig);
+
+        await options.onPreserveDocTreeChange(enabled);
+      });
+
+      return checkbox;
+    },
   });
 
   setting.addItem({
