@@ -43,6 +43,7 @@ export interface HugoConfig {
   autoCleanOrphans: boolean;
   language: string;
   badgeRefreshDelayMs: number;
+  preserveDocTree: boolean;
 }
 
 export const DEFAULT_CONFIG: HugoConfig = {
@@ -56,6 +57,7 @@ export const DEFAULT_CONFIG: HugoConfig = {
   autoCleanOrphans: false,
   language: "",
   badgeRefreshDelayMs: 400,
+  preserveDocTree: false,
 };
 
 export type SyncStatus = "synced" | "modified" | "not-published";
