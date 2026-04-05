@@ -16,5 +16,9 @@
   "autoSyncOnSave": "Synchronisation auto à la sauvegarde",
   "slugMode": "Mode slug",
   "language": "Préfixe de langue Hugo",
-  "preserveDocTree": "Miroir de l'arborescence SiYuan"
+  "preserveDocTree": "Miroir de l'arborescence SiYuan",
+  "publishMode": "Mode de publication",
+  "gitRepoUrl": "URL du dépôt Git",
+  "gitBranch": "Branche Git",
+  "gitToken": "Token Git"
 }
