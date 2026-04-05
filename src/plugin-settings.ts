@@ -15,27 +15,10 @@ interface SetupPluginSettingsOptions {
 
 type FieldMap = Record<string, HTMLInputElement | HTMLSelectElement>;
 
-/**
- * Reads a typed configuration value through a dynamic key.
- *
- * @param config Current plugin configuration.
- * @param key Configuration key to read.
- * @returns The raw configuration value.
- */
 function getConfigValue(config: HugoConfig, key: string): unknown {
   return (config as unknown as Record<string, unknown>)[key];
 }
 
-/**
- * Creates a text input bound to a configuration field.
- *
- * @param fields Field registry updated with the created element.
- * @param key Configuration field key.
- * @param getConfig Callback returning the current config.
- * @param onChange Change handler used to persist updates.
- * @param placeholder Optional placeholder text.
- * @returns The created input element.
- */
 function createTextField(
   fields: FieldMap,
   key: string,
@@ -52,17 +35,6 @@ function createTextField(
   return el;
 }
 
-/**
- * Creates a numeric input bound to a configuration field.
- *
- * @param fields Field registry updated with the created element.
- * @param key Configuration field key.
- * @param getConfig Callback returning the current config.
- * @param onChange Change handler used to persist updates.
- * @param min Minimum allowed value.
- * @param placeholder Optional placeholder text.
- * @returns The created numeric input element.
- */
 function createNumberField(
   fields: FieldMap,
   key: string,
@@ -82,15 +54,6 @@ function createNumberField(
   return el;
 }
 
-/**
- * Creates a checkbox input bound to a boolean configuration field.
- *
- * @param fields Field registry updated with the created element.
- * @param key Configuration field key.
- * @param getConfig Callback returning the current config.
- * @param onChange Change handler used to persist updates.
- * @returns The created checkbox element.
- */
 function createSwitchField(
   fields: FieldMap,
   key: string,
@@ -106,12 +69,6 @@ function createSwitchField(
   return el;
 }
 
-/**
- * Rebuilds the plugin configuration object from the settings form fields.
- *
- * @param fields Current settings field registry.
- * @returns The normalized configuration object.
- */
 function buildConfigFromFields(fields: FieldMap): HugoConfig {
   return {
     hugoProjectPath: (fields.hugoProjectPath as HTMLInputElement).value.trim(),
@@ -133,8 +90,13 @@ function buildConfigFromFields(fields: FieldMap): HugoConfig {
 }
 
 /**
- * Tweaks the native SiYuan settings dialog styling for this plugin panel.
+ * Returns the closest ancestor `<li>` of an element — the row container
+ * used by SiYuan's Setting component.
  */
+function settingRow(el: HTMLElement): HTMLElement | null {
+  return el.closest("li") as HTMLElement | null;
+}
+
 function installSettingsDialogObserver(): void {
   const dialogObserver = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
@@ -185,17 +147,16 @@ function installSettingsDialogObserver(): void {
   dialogObserver.observe(document.body, { childList: true, subtree: true });
 }
 
-/**
- * Builds the SiYuan settings panel for the plugin configuration.
- *
- * @param options Settings callbacks used to read, save, and trigger actions.
- * @returns The configured SiYuan `Setting` instance.
- */
 export function setupPluginSettings(options: SetupPluginSettingsOptions): Setting {
   const fields: FieldMap = {};
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Elements whose rows are hidden/shown based on publish mode
+  const fsOnlyEls: HTMLElement[] = [];   // visible in filesystem mode only
+  const gitOnlyEls: HTMLElement[] = [];  // visible in git mode only
+
   const getConfig = (): HugoConfig => options.getConfig() ?? { ...DEFAULT_CONFIG };
+
   const scheduleSave = () => {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
@@ -206,9 +167,57 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
     }, 500);
   };
 
+  /**
+   * Shows/hides setting rows based on the currently selected publish mode.
+   * Uses el.closest('li') to reach the full row rendered by SiYuan's Setting API.
+   */
+  const applyModeVisibility = () => {
+    const isGit = (fields.publishMode as HTMLSelectElement)?.value === "git";
+    for (const el of fsOnlyEls) {
+      const row = settingRow(el);
+      if (row) row.style.display = isGit ? "none" : "";
+    }
+    for (const el of gitOnlyEls) {
+      const row = settingRow(el);
+      if (row) row.style.display = isGit ? "" : "none";
+    }
+  };
+
   installSettingsDialogObserver();
 
   const setting = new Setting({});
+
+  // ---------------------------------------------------------------------------
+  // 1. Publish mode  (always visible — drives show/hide of groups below)
+  // ---------------------------------------------------------------------------
+
+  setting.addItem({
+    title: "Publish mode",
+    description: "Filesystem: write via SiYuan shared volume. Git: push directly to a GitHub repository.",
+    createActionElement: () => {
+      const select = document.createElement("select");
+      select.className = "b3-select fn__flex-1";
+      [
+        { value: "filesystem", label: "Filesystem (shared volume)" },
+        { value: "git",        label: "Git (GitHub repository)" },
+      ].forEach(({ value, label }) => {
+        const opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = label;
+        opt.selected = getConfig().publishMode === value;
+        select.appendChild(opt);
+      });
+      select.addEventListener("change", () => { scheduleSave(); applyModeVisibility(); });
+      fields.publishMode = select;
+      // Apply initial visibility once the rows are in the DOM
+      setTimeout(applyModeVisibility, 0);
+      return select;
+    },
+  });
+
+  // ---------------------------------------------------------------------------
+  // 2. Filesystem-only fields
+  // ---------------------------------------------------------------------------
 
   setting.addItem({
     title: "Hugo project path",
@@ -231,7 +240,6 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
       browseBtn.addEventListener("click", () => {
         openPathExplorer(input.value.trim(), (selectedPath) => {
           input.value = selectedPath;
-          // Trigger change to persist the new value
           input.dispatchEvent(new Event("change"));
         });
       });
@@ -247,15 +255,13 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
         const result = await validateHugoProject(testConfig, createStorageAdapter(testConfig));
         testBtn.textContent = result.valid ? "OK" : "KO";
         testBtn.title = result.valid ? "" : (result.error ?? "");
-        setTimeout(() => {
-          testBtn.textContent = "Test";
-          testBtn.disabled = false;
-        }, 2500);
+        setTimeout(() => { testBtn.textContent = "Test"; testBtn.disabled = false; }, 2500);
       });
 
       wrap.appendChild(inputWrap);
       wrap.appendChild(browseBtn);
       wrap.appendChild(testBtn);
+      fsOnlyEls.push(wrap);
       return wrap;
     },
   });
@@ -263,14 +269,87 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
   setting.addItem({
     title: "Content directory",
     description: "Relative path from Hugo root",
-    createActionElement: () => createTextField(fields, "contentDir", getConfig, scheduleSave, "content/posts"),
+    createActionElement: () => {
+      const el = createTextField(fields, "contentDir", getConfig, scheduleSave, "content/posts");
+      fsOnlyEls.push(el);
+      return el;
+    },
   });
 
   setting.addItem({
     title: "Images directory",
     description: "Relative path inside /static/",
-    createActionElement: () => createTextField(fields, "staticDir", getConfig, scheduleSave, "static/images"),
+    createActionElement: () => {
+      const el = createTextField(fields, "staticDir", getConfig, scheduleSave, "static/images");
+      fsOnlyEls.push(el);
+      return el;
+    },
   });
+
+  // ---------------------------------------------------------------------------
+  // 3. Git-only fields
+  // ---------------------------------------------------------------------------
+
+  setting.addItem({
+    title: "Git repository URL",
+    description: "GitHub HTTPS URL (e.g. https://github.com/owner/repo.git)",
+    createActionElement: () => {
+      const el = createTextField(fields, "gitRepoUrl", getConfig, scheduleSave, "https://github.com/owner/repo.git");
+      gitOnlyEls.push(el);
+      return el;
+    },
+  });
+
+  setting.addItem({
+    title: "Git branch",
+    description: "Target branch for published content (default: main)",
+    createActionElement: () => {
+      const el = createTextField(fields, "gitBranch", getConfig, scheduleSave, "main");
+      gitOnlyEls.push(el);
+      return el;
+    },
+  });
+
+  setting.addItem({
+    title: "Git token",
+    description: "GitHub Personal Access Token with repo write access",
+    createActionElement: () => {
+      const wrap = document.createElement("div");
+      wrap.className = "fn__flex fn__flex-1";
+      wrap.style.gap = "8px";
+
+      const tokenInput = document.createElement("input");
+      tokenInput.type = "password";
+      tokenInput.className = "b3-text-field fn__flex-1";
+      tokenInput.value = String(getConfig().gitToken ?? "");
+      tokenInput.placeholder = "ghp_xxxxxxxxxxxxxxxxxxxx";
+      tokenInput.addEventListener("change", scheduleSave);
+      fields.gitToken = tokenInput;
+
+      const testBtn = document.createElement("button");
+      testBtn.className = "b3-button b3-button--outline";
+      testBtn.textContent = "Test";
+      testBtn.style.whiteSpace = "nowrap";
+      testBtn.addEventListener("click", async () => {
+        testBtn.disabled = true;
+        testBtn.textContent = "…";
+        const testConfig = buildConfigFromFields(fields);
+        const result = await validateHugoProject(testConfig, createStorageAdapter(testConfig));
+        testBtn.textContent = result.valid ? "OK" : "KO";
+        testBtn.title = result.valid ? "" : (result.error ?? "");
+        setTimeout(() => { testBtn.textContent = "Test"; testBtn.disabled = false; }, 2500);
+      });
+
+      wrap.appendChild(tokenInput);
+      wrap.appendChild(testBtn);
+      gitOnlyEls.push(wrap);
+      return wrap;
+    },
+  });
+
+  // ---------------------------------------------------------------------------
+  // 4. Common fields
+  // ---------------------------------------------------------------------------
 
   setting.addItem({
     title: "Tag filter",
@@ -329,93 +408,22 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
     createActionElement: () => createSwitchField(fields, "autoCleanOrphans", getConfig, scheduleSave),
   });
 
-  // ---------------------------------------------------------------------------
-  // Publish mode + Git settings
-  // ---------------------------------------------------------------------------
-
-  setting.addItem({
-    title: "Publish mode",
-    description: "Filesystem: write via SiYuan shared volume. Git: push directly to a GitHub repository.",
-    createActionElement: () => {
-      const select = document.createElement("select");
-      select.className = "b3-select fn__flex-1";
-      [
-        { value: "filesystem", label: "Filesystem (shared volume)" },
-        { value: "git",        label: "Git (GitHub repository)" },
-      ].forEach(({ value, label }) => {
-        const opt = document.createElement("option");
-        opt.value = value;
-        opt.textContent = label;
-        opt.selected = getConfig().publishMode === value;
-        select.appendChild(opt);
-      });
-
-      const refreshGitFields = () => {
-        const isGit = select.value === "git";
-        [fields.gitRepoUrl, fields.gitBranch, fields.gitToken].forEach((el) => {
-          if (el instanceof HTMLInputElement) {
-            el.disabled = !isGit;
-            el.style.opacity = isGit ? "1" : "0.4";
-          }
-        });
-      };
-
-      select.addEventListener("change", () => { scheduleSave(); refreshGitFields(); });
-      fields.publishMode = select;
-      setTimeout(refreshGitFields, 0);
-      return select;
-    },
-  });
-
-  setting.addItem({
-    title: "Git repository URL",
-    description: "GitHub HTTPS URL — only used when Publish mode is Git",
-    createActionElement: () => createTextField(fields, "gitRepoUrl", getConfig, scheduleSave, "https://github.com/owner/repo.git"),
-  });
-
-  setting.addItem({
-    title: "Git branch",
-    description: "Target branch (default: main)",
-    createActionElement: () => createTextField(fields, "gitBranch", getConfig, scheduleSave, "main"),
-  });
-
-  setting.addItem({
-    title: "Git token",
-    description: "GitHub Personal Access Token with repo write access",
-    createActionElement: () => {
-      const el = document.createElement("input");
-      el.type = "password";
-      el.className = "b3-text-field fn__flex-1";
-      el.value = String(getConfig().gitToken ?? "");
-      el.placeholder = "ghp_xxxxxxxxxxxxxxxxxxxx";
-      el.addEventListener("change", scheduleSave);
-      fields.gitToken = el;
-      return el;
-    },
-  });
-
-  // ---------------------------------------------------------------------------
-
   setting.addItem({
     title: "Mirror doc tree structure",
     description: "Replicate SiYuan folder hierarchy in Hugo content directory. Toggling reorganizes existing published notes.",
     createActionElement: () => {
       const checkbox = createSwitchField(fields, "preserveDocTree", getConfig, scheduleSave);
       const previousValue = { current: getConfig().preserveDocTree };
-
       checkbox.addEventListener("change", async () => {
         const enabled = checkbox.checked;
         if (enabled === previousValue.current) return;
         previousValue.current = enabled;
-
         if (saveTimer) clearTimeout(saveTimer);
         const nextConfig = buildConfigFromFields(fields);
         options.onConfigChange(nextConfig);
         await saveConfig(nextConfig);
-
         await options.onPreserveDocTreeChange(enabled);
       });
-
       return checkbox;
     },
   });
