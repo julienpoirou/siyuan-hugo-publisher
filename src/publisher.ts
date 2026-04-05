@@ -1,8 +1,8 @@
 import type { HugoConfig, SyncStatus } from "./types";
 import { exportMdContent, getBlockAttrs, putFile, makeDir, toWorkspacePath, fileExists, readFileText, removeFile, docExists, readDir } from "./api";
-import { convertDoc, renderMarkdownFile } from "./converter";
+import { convertDoc, renderMarkdownFile, slugify } from "./converter";
 import { copyImagesToHugo, validateHugoProject } from "./image-handler";
-import { computeSyncStatus, setSyncEntry, getSyncEntry, removeSyncEntry, reconcileImageRefsForDoc } from "./sync-state";
+import { computeSyncStatus, setSyncEntry, getSyncEntry, removeSyncEntry, reconcileImageRefsForDoc, getMirroredDocIds } from "./sync-state";
 import { createLogger, getErrorMessage } from "./logger";
 
 export interface PublishResult {
@@ -59,12 +59,31 @@ export function resolveLocalizedContentDir(contentDir: string, language: string)
 /**
  * Builds the destination helpers used for Hugo content output paths.
  *
+ * When `preserveDocTree` is enabled and `hPath` is provided, the SiYuan
+ * hierarchical path is mirrored as subfolders under `contentDir`. The last
+ * segment of `hPath` (the document title) is excluded because it is already
+ * used as the file slug.
+ *
+ * Example: hPath "/Blog/Projects/Details" with contentDir "content/posts"
+ * → dirPath = "{hugo}/content/posts/blog/projects"
+ *
  * @param config Active Hugo publishing configuration.
+ * @param hPath Optional SiYuan hierarchical path used for tree mirroring.
  * @returns Resolved destination helpers.
  */
-function buildHugoDestination(config: HugoConfig): HugoDestination {
+function buildHugoDestination(config: HugoConfig, hPath?: string): HugoDestination {
   const hugoBase = toWorkspacePath(config.hugoProjectPath);
-  const contentDir = resolveLocalizedContentDir(config.contentDir, config.language);
+  let contentDir = resolveLocalizedContentDir(config.contentDir, config.language);
+
+  if (config.preserveDocTree && hPath) {
+    // Split hPath into segments, drop empty strings and the last segment (doc title).
+    const folderSegments = hPath.split("/").filter(Boolean).slice(0, -1);
+    if (folderSegments.length > 0) {
+      const treeSubdir = folderSegments.map(slugify).join("/");
+      contentDir = `${contentDir}/${treeSubdir}`;
+    }
+  }
+
   const dirPath = `${hugoBase}/${contentDir}`;
 
   return {
@@ -265,7 +284,7 @@ export async function publishDoc(
       .map((r) => r.ref.targetPath)
   );
 
-  const destination = buildHugoDestination(config);
+  const destination = buildHugoDestination(config, exported.hPath);
   const previousEntry = await getSyncEntry(docId);
 
   const slug = await resolveUniqueSlug(converted.frontMatter.slug, docId, `${destination.dirPath}/`);
@@ -484,4 +503,41 @@ export async function reconcileOrphanDocs(config: HugoConfig): Promise<OrphanRes
 
   return { removed, errors };
 }
+export interface RetreeResult {
+  moved: number;
+  errors: string[];
+}
+
+/**
+ * Re-publishes all mirrored documents to update their Hugo paths.
+ *
+ * Called when `preserveDocTree` is toggled so that existing notes are
+ * reorganized in the Hugo content tree to match (or flatten) the SiYuan
+ * hierarchy. Each call to `publishDoc` detects path changes and removes the
+ * old file before writing the new one.
+ *
+ * @param config Active Hugo publishing configuration (with the new toggle value).
+ * @returns Counts of moved documents and any encountered errors.
+ */
+export async function retreePublishedDocs(config: HugoConfig): Promise<RetreeResult> {
+  const docIds = await getMirroredDocIds();
+  let moved = 0;
+  const errors: string[] = [];
+
+  for (const docId of docIds) {
+    try {
+      const result = await publishDoc(docId, config);
+      if (result.success) {
+        moved++;
+      } else {
+        errors.push(`${docId}: ${result.message}`);
+      }
+    } catch (err) {
+      errors.push(`${docId}: ${getErrorMessage(err)}`);
+    }
+  }
+
+  return { moved, errors };
+}
+
 const log = createLogger("publisher");

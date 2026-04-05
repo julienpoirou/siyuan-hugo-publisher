@@ -3,7 +3,7 @@ import { Plugin } from "siyuan";
 import type { HugoConfig } from "./types";
 import { getMirroredDocIds, getSyncEntry, initSyncState } from "./sync-state";
 import { initSettings, loadConfig } from "./settings";
-import { publishDoc as doPublish, unpublishDoc as doUnpublish, getDocStatus, reconcileOrphanDocs } from "./publisher";
+import { publishDoc as doPublish, unpublishDoc as doUnpublish, getDocStatus, reconcileOrphanDocs, retreePublishedDocs } from "./publisher";
 import { exportMdContent } from "./api";
 import { upsertBadge } from "./ui/badge";
 import { showToast } from "./ui/toast";
@@ -60,11 +60,13 @@ export default class HugoPublisherPlugin extends Plugin {
         autoCleanOrphans: false,
         language: "",
         badgeRefreshDelayMs: 400,
+        preserveDocTree: false,
       },
       onConfigChange: (config) => {
         this.config = config;
       },
       runOrphanCleanup: () => this.runOrphanCleanup(false),
+      onPreserveDocTreeChange: (enabled) => this.retreePublishedDocs(enabled),
     });
 
     if (this.config?.autoCleanOrphans) {
@@ -129,6 +131,33 @@ export default class HugoPublisherPlugin extends Plugin {
     } catch (err) {
       log.error("Orphan cleanup failed", err);
       if (!silent) showToast(`Orphan cleanup failed: ${getErrorMessage(err)}`, "error");
+    }
+  }
+
+  /**
+   * Re-publishes all mirrored documents after a `preserveDocTree` toggle.
+   *
+   * Shows a progress toast and a summary toast on completion.
+   *
+   * @param enabled New value of `preserveDocTree`.
+   */
+  async retreePublishedDocs(enabled: boolean): Promise<void> {
+    if (!this.config) return;
+    const label = enabled ? "tree" : "flat";
+    showToast(`Reorganizing notes to ${label} structure…`, "info", 3000);
+    try {
+      const { moved, errors } = await retreePublishedDocs(this.config);
+      if (moved > 0) {
+        showToast(`Reorganized ${moved} note(s) to ${label} structure`, "success", 5000);
+        await this.refreshAllOpenDocs();
+      }
+      if (errors.length > 0) {
+        log.error("Retree errors", errors);
+        showToast(`Retree: ${errors.length} error(s) — see console`, "error", 6000);
+      }
+    } catch (err) {
+      log.error("Retree failed", err);
+      showToast(`Retree failed: ${getErrorMessage(err)}`, "error", 6000);
     }
   }
 
