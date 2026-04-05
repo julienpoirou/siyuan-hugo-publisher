@@ -16,5 +16,9 @@
   "autoSyncOnSave": "Auto-sync on save",
   "slugMode": "Slug mode",
   "language": "Hugo language prefix",
-  "preserveDocTree": "Mirror doc tree structure"
+  "preserveDocTree": "Mirror doc tree structure",
+  "publishMode": "Publish mode",
+  "gitRepoUrl": "Git repository URL",
+  "gitBranch": "Git branch",
+  "gitToken": "Git token"
 }

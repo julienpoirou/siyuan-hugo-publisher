@@ -3,6 +3,7 @@ import { Setting } from "siyuan";
 import { DEFAULT_CONFIG, type HugoConfig } from "./types";
 import { saveConfig } from "./settings";
 import { validateHugoProject } from "./image-handler";
+import { createStorageAdapter } from "./storage-adapter";
 import { openPathExplorer } from "./path-explorer";
 
 interface SetupPluginSettingsOptions {
@@ -124,6 +125,10 @@ function buildConfigFromFields(fields: FieldMap): HugoConfig {
     autoCleanOrphans: (fields.autoCleanOrphans as HTMLInputElement).checked,
     badgeRefreshDelayMs: Math.max(100, Number((fields.badgeRefreshDelayMs as HTMLInputElement).value) || 400),
     preserveDocTree: (fields.preserveDocTree as HTMLInputElement).checked,
+    publishMode: (fields.publishMode as HTMLSelectElement).value as HugoConfig["publishMode"],
+    gitRepoUrl: (fields.gitRepoUrl as HTMLInputElement)?.value.trim() ?? "",
+    gitBranch: (fields.gitBranch as HTMLInputElement)?.value.trim() || "main",
+    gitToken: (fields.gitToken as HTMLInputElement)?.value.trim() ?? "",
   };
 }
 
@@ -238,7 +243,8 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
       testBtn.addEventListener("click", async () => {
         testBtn.disabled = true;
         testBtn.textContent = "…";
-        const result = await validateHugoProject({ ...getConfig(), hugoProjectPath: input.value.trim() });
+        const testConfig = { ...getConfig(), hugoProjectPath: input.value.trim() };
+        const result = await validateHugoProject(testConfig, createStorageAdapter(testConfig));
         testBtn.textContent = result.valid ? "OK" : "KO";
         testBtn.title = result.valid ? "" : (result.error ?? "");
         setTimeout(() => {
@@ -322,6 +328,73 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
     description: "On startup, remove Hugo pages whose SiYuan document no longer exists",
     createActionElement: () => createSwitchField(fields, "autoCleanOrphans", getConfig, scheduleSave),
   });
+
+  // ---------------------------------------------------------------------------
+  // Publish mode + Git settings
+  // ---------------------------------------------------------------------------
+
+  setting.addItem({
+    title: "Publish mode",
+    description: "Filesystem: write via SiYuan shared volume. Git: push directly to a GitHub repository.",
+    createActionElement: () => {
+      const select = document.createElement("select");
+      select.className = "b3-select fn__flex-1";
+      [
+        { value: "filesystem", label: "Filesystem (shared volume)" },
+        { value: "git",        label: "Git (GitHub repository)" },
+      ].forEach(({ value, label }) => {
+        const opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = label;
+        opt.selected = getConfig().publishMode === value;
+        select.appendChild(opt);
+      });
+
+      const refreshGitFields = () => {
+        const isGit = select.value === "git";
+        [fields.gitRepoUrl, fields.gitBranch, fields.gitToken].forEach((el) => {
+          if (el instanceof HTMLInputElement) {
+            el.disabled = !isGit;
+            el.style.opacity = isGit ? "1" : "0.4";
+          }
+        });
+      };
+
+      select.addEventListener("change", () => { scheduleSave(); refreshGitFields(); });
+      fields.publishMode = select;
+      setTimeout(refreshGitFields, 0);
+      return select;
+    },
+  });
+
+  setting.addItem({
+    title: "Git repository URL",
+    description: "GitHub HTTPS URL — only used when Publish mode is Git",
+    createActionElement: () => createTextField(fields, "gitRepoUrl", getConfig, scheduleSave, "https://github.com/owner/repo.git"),
+  });
+
+  setting.addItem({
+    title: "Git branch",
+    description: "Target branch (default: main)",
+    createActionElement: () => createTextField(fields, "gitBranch", getConfig, scheduleSave, "main"),
+  });
+
+  setting.addItem({
+    title: "Git token",
+    description: "GitHub Personal Access Token with repo write access",
+    createActionElement: () => {
+      const el = document.createElement("input");
+      el.type = "password";
+      el.className = "b3-text-field fn__flex-1";
+      el.value = String(getConfig().gitToken ?? "");
+      el.placeholder = "ghp_xxxxxxxxxxxxxxxxxxxx";
+      el.addEventListener("change", scheduleSave);
+      fields.gitToken = el;
+      return el;
+    },
+  });
+
+  // ---------------------------------------------------------------------------
 
   setting.addItem({
     title: "Mirror doc tree structure",

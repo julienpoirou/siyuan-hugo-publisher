@@ -4,6 +4,7 @@ import type { HugoConfig } from "./types";
 import { getMirroredDocIds, getSyncEntry, initSyncState } from "./sync-state";
 import { initSettings, loadConfig } from "./settings";
 import { publishDoc as doPublish, unpublishDoc as doUnpublish, getDocStatus, reconcileOrphanDocs, retreePublishedDocs } from "./publisher";
+import { createStorageAdapter } from "./storage-adapter";
 import { exportMdContent } from "./api";
 import { upsertBadge } from "./ui/badge";
 import { showToast } from "./ui/toast";
@@ -61,6 +62,10 @@ export default class HugoPublisherPlugin extends Plugin {
         language: "",
         badgeRefreshDelayMs: 400,
         preserveDocTree: false,
+        publishMode: "filesystem",
+        gitRepoUrl: "",
+        gitBranch: "main",
+        gitToken: "",
       },
       onConfigChange: (config) => {
         this.config = config;
@@ -115,10 +120,14 @@ export default class HugoPublisherPlugin extends Plugin {
    *
    * @param silent When `true`, suppresses the "no orphans" toast.
    */
+  private getAdapter() {
+    return createStorageAdapter(this.config!);
+  }
+
   async runOrphanCleanup(silent = false): Promise<void> {
     if (!this.config) return;
     try {
-      const { removed, errors } = await reconcileOrphanDocs(this.config);
+      const { removed, errors } = await reconcileOrphanDocs(this.config, this.getAdapter());
       if (removed.length > 0) {
         showToast(`Orphans removed: ${removed.length}`, "info");
         await this.refreshAllOpenDocs();
@@ -146,7 +155,7 @@ export default class HugoPublisherPlugin extends Plugin {
     const label = enabled ? "tree" : "flat";
     showToast(`Reorganizing notes to ${label} structure…`, "info", 3000);
     try {
-      const { moved, errors } = await retreePublishedDocs(this.config);
+      const { moved, errors } = await retreePublishedDocs(this.config, this.getAdapter());
       if (moved > 0) {
         showToast(`Reorganized ${moved} note(s) to ${label} structure`, "success", 5000);
         await this.refreshAllOpenDocs();
@@ -192,7 +201,7 @@ export default class HugoPublisherPlugin extends Plugin {
       return;
     }
     try {
-      const result = await doUnpublish(docId, this.config);
+      const result = await doUnpublish(docId, this.config, this.getAdapter());
       if (result.success) {
         this.statusCache.set(docId, "not-published");
         this.editorFingerprints.delete(docId);
@@ -222,7 +231,7 @@ export default class HugoPublisherPlugin extends Plugin {
     }
 
     if (!silent) showToast("Publication en cours…", "info", 2000);
-    const result = await doPublish(docId, this.config);
+    const result = await doPublish(docId, this.config, this.getAdapter());
 
     if (result.success) {
       if (!silent) {
@@ -251,7 +260,7 @@ export default class HugoPublisherPlugin extends Plugin {
   async refreshDocStatus(docId: string, protyleEl?: HTMLElement): Promise<void> {
     if (!this.config?.hugoProjectPath) return;
     try {
-      const result = await getDocStatus(docId, this.config);
+      const result = await getDocStatus(docId, this.config, this.getAdapter());
       upsertBadge(protyleEl ?? null, docId, result.status, result.lastSync);
       this.statusCache.set(docId, result.status);
       if (result.status === "synced") {

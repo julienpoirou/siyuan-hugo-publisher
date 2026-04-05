@@ -1,5 +1,6 @@
 import type { HugoConfig, SyncStatus } from "./types";
-import { exportMdContent, getBlockAttrs, putFile, makeDir, toWorkspacePath, fileExists, readFileText, removeFile, docExists, readDir } from "./api";
+import type { StorageAdapter } from "./storage-adapter";
+import { exportMdContent, getBlockAttrs, toWorkspacePath } from "./api";
 import { convertDoc, renderMarkdownFile, slugify } from "./converter";
 import { copyImagesToHugo, validateHugoProject } from "./image-handler";
 import { computeSyncStatus, setSyncEntry, getSyncEntry, removeSyncEntry, reconcileImageRefsForDoc, getMirroredDocIds } from "./sync-state";
@@ -29,9 +30,6 @@ interface HugoDestination {
 
 /**
  * Removes leading and trailing slashes from a path segment.
- *
- * @param value Raw path segment.
- * @returns The trimmed segment.
  */
 function trimSlashes(value: string): string {
   return value.replace(/^\/+|\/+$/g, "");
@@ -39,10 +37,6 @@ function trimSlashes(value: string): string {
 
 /**
  * Resolves the effective Hugo content directory, optionally inserting a language prefix.
- *
- * @param contentDir Configured Hugo content directory.
- * @param language Optional language code.
- * @returns The localized content directory path.
  */
 export function resolveLocalizedContentDir(contentDir: string, language: string): string {
   const normalizedDir = trimSlashes(contentDir);
@@ -60,32 +54,24 @@ export function resolveLocalizedContentDir(contentDir: string, language: string)
  * Builds the destination helpers used for Hugo content output paths.
  *
  * When `preserveDocTree` is enabled and `hPath` is provided, the SiYuan
- * hierarchical path is mirrored as subfolders under `contentDir`. The last
- * segment of `hPath` (the document title) is excluded because it is already
- * used as the file slug.
- *
- * Example: hPath "/Blog/Projects/Details" with contentDir "content/posts"
- * → dirPath = "{hugo}/content/posts/blog/projects"
+ * hierarchical path is mirrored as subfolders under `contentDir`.
  *
  * @param config Active Hugo publishing configuration.
+ * @param adapter Active storage adapter (provides the hugo base path).
  * @param hPath Optional SiYuan hierarchical path used for tree mirroring.
- * @returns Resolved destination helpers.
  */
-function buildHugoDestination(config: HugoConfig, hPath?: string): HugoDestination {
-  const hugoBase = toWorkspacePath(config.hugoProjectPath);
+function buildHugoDestination(config: HugoConfig, adapter: StorageAdapter, hPath?: string): HugoDestination {
+  const hugoBase = adapter.hugoBase;
   let contentDir = resolveLocalizedContentDir(config.contentDir, config.language);
 
   if (config.preserveDocTree && hPath) {
-    // Split hPath into segments, drop empty strings and the last segment (doc title).
     const folderSegments = hPath.split("/").filter(Boolean).slice(0, -1);
     if (folderSegments.length > 0) {
-      const treeSubdir = folderSegments.map(slugify).join("/");
-      contentDir = `${contentDir}/${treeSubdir}`;
+      contentDir = `${contentDir}/${folderSegments.map(slugify).join("/")}`;
     }
   }
 
   const dirPath = `${hugoBase}/${contentDir}`;
-
   return {
     contentDir,
     dirPath,
@@ -96,23 +82,13 @@ function buildHugoDestination(config: HugoConfig, hPath?: string): HugoDestinati
 
 /**
  * Deduplicates and normalizes relative paths.
- *
- * @param paths Candidate paths.
- * @returns Unique normalized paths.
  */
 function uniquePaths(paths: string[]): string[] {
-  return Array.from(new Set(paths.map((path) => trimSlashes(path)).filter(Boolean)));
+  return Array.from(new Set(paths.map((p) => trimSlashes(p)).filter(Boolean)));
 }
 
 /**
  * Normalizes rendered Markdown before status comparison.
- *
- * `lastmod` can drift after publish because writing block attributes in SiYuan
- * may update the document metadata timestamp without changing the actual note
- * content. That should not flip a freshly synced badge back to `Modified`.
- *
- * @param content Rendered Markdown file content.
- * @returns Comparable content with volatile metadata removed.
  */
 export function normalizeRenderedContentForComparison(content: string): string {
   return content
@@ -125,9 +101,6 @@ export function normalizeRenderedContentForComparison(content: string): string {
 
 /**
  * Derives common Hugo public output paths generated from a content file.
- *
- * @param hugoRelPath Relative Hugo content path.
- * @returns Candidate generated public artifact paths.
  */
 export function deriveGeneratedPublicPaths(hugoRelPath: string): string[] {
   const normalized = trimSlashes(hugoRelPath);
@@ -146,16 +119,15 @@ export function deriveGeneratedPublicPaths(hugoRelPath: string): string[] {
 }
 
 /**
- * Removes published files relative to the configured Hugo project root.
+ * Removes published files relative to the Hugo project root.
  *
- * @param paths Relative file paths to remove.
- * @param config Active Hugo publishing configuration.
+ * In git mode, public artifact paths are skipped (Hugo's dev server does not
+ * generate a public/ directory in the repository).
  */
-async function removePublishedFiles(paths: string[], config: HugoConfig): Promise<void> {
-  const hugoBase = toWorkspacePath(config.hugoProjectPath);
+async function removePublishedFiles(paths: string[], adapter: StorageAdapter): Promise<void> {
   for (const relPath of uniquePaths(paths)) {
     try {
-      await removeFile(`${hugoBase}/${relPath}`);
+      await adapter.deleteFile(`${adapter.hugoBase}/${relPath}`);
     } catch (err) {
       log.warn(`Non-blocking cleanup failure for ${relPath}`, err);
     }
@@ -163,24 +135,28 @@ async function removePublishedFiles(paths: string[], config: HugoConfig): Promis
 }
 
 /**
- * Removes a published content file and its likely generated public artifacts.
+ * Removes a published content file and its generated public artifacts.
  *
- * @param hugoRelPath Relative Hugo content path.
- * @param config Active Hugo publishing configuration.
+ * Public artifacts are only attempted in filesystem mode.
  */
-async function removePublishedPageArtifacts(hugoRelPath: string, config: HugoConfig): Promise<void> {
-  await removePublishedFiles(
-    [hugoRelPath, ...deriveGeneratedPublicPaths(hugoRelPath)],
-    config
-  );
+async function removePublishedPageArtifacts(
+  hugoRelPath: string,
+  config: HugoConfig,
+  adapter: StorageAdapter
+): Promise<void> {
+  const artifacts = config.publishMode === "git"
+    ? []
+    : deriveGeneratedPublicPaths(hugoRelPath);
+
+  await removePublishedFiles([hugoRelPath, ...artifacts], adapter);
 }
 
 /**
- * Writes a marker file used to trigger a Hugo-side refresh.
- *
- * @param config Active Hugo publishing configuration.
+ * Writes a marker file to trigger Hugo's filesystem watcher (filesystem mode only).
  */
-async function triggerHugoRefresh(config: HugoConfig): Promise<void> {
+async function triggerHugoRefresh(config: HugoConfig, adapter: StorageAdapter): Promise<void> {
+  if (config.publishMode === "git") return;
+
   const hugoBase = toWorkspacePath(config.hugoProjectPath);
   const markerDir = `${hugoBase}/data`;
   const markerPath = `${markerDir}/siyuan-hugo-publisher-refresh.json`;
@@ -188,30 +164,26 @@ async function triggerHugoRefresh(config: HugoConfig): Promise<void> {
     refreshedAt: new Date().toISOString(),
     nonce: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
   }, null, 2);
-  await makeDir(markerDir);
-  await putFile(markerPath, `${markerContent}\n`);
+  await adapter.ensureDir(markerDir);
+  await adapter.putTextFile(markerPath, `${markerContent}\n`);
 }
 
 /**
  * Resolves a unique slug by probing the target directory for collisions.
- *
- * @param baseSlug Initial slug candidate.
- * @param docId SiYuan document identifier.
- * @param destDir Destination directory path ending with a slash.
- * @returns A slug that is unique for the target directory.
  */
 async function resolveUniqueSlug(
   baseSlug: string,
   docId: string,
-  destDir: string
+  destDir: string,
+  adapter: StorageAdapter
 ): Promise<string> {
   let slug = baseSlug;
   let counter = 0;
   while (true) {
     const filePath = `${destDir}${slug}.md`;
-    if (!(await fileExists(filePath))) return slug;
+    if (!(await adapter.fileExists(filePath))) return slug;
     try {
-      const content = await readFileText(filePath);
+      const content = await adapter.readText(filePath);
       if (content.includes(`siyuan_id: "${docId}"`)) return slug;
     } catch (err) {
       log.warn(`Unable to inspect existing slug at ${filePath}`, err);
@@ -226,13 +198,15 @@ async function resolveUniqueSlug(
  *
  * @param docId SiYuan document identifier.
  * @param config Active Hugo publishing configuration.
+ * @param adapter Active storage adapter (filesystem or git).
  * @returns The publish operation result.
  */
 export async function publishDoc(
   docId: string,
-  config: HugoConfig
+  config: HugoConfig,
+  adapter: StorageAdapter
 ): Promise<PublishResult> {
-  const validation = await validateHugoProject(config);
+  const validation = await validateHugoProject(config, adapter);
   if (!validation.valid) {
     return { success: false, message: validation.error ?? "Projet Hugo invalide" };
   }
@@ -276,25 +250,28 @@ export async function publishDoc(
     };
   }
 
-  const imageResults = await copyImagesToHugo(converted.images, config);
+  const imageResults = await copyImagesToHugo(converted.images, config, adapter);
   const imagesErrors = imageResults.filter((r) => !r.success).map((r) => r.error ?? "Erreur inconnue");
   const publishedImages = uniquePaths(
-    imageResults
-      .filter((r) => r.success)
-      .map((r) => r.ref.targetPath)
+    imageResults.filter((r) => r.success).map((r) => r.ref.targetPath)
   );
 
-  const destination = buildHugoDestination(config, exported.hPath);
+  const destination = buildHugoDestination(config, adapter, exported.hPath);
   const previousEntry = await getSyncEntry(docId);
 
-  const slug = await resolveUniqueSlug(converted.frontMatter.slug, docId, `${destination.dirPath}/`);
+  const slug = await resolveUniqueSlug(
+    converted.frontMatter.slug,
+    docId,
+    `${destination.dirPath}/`,
+    adapter
+  );
   converted.frontMatter.slug = slug;
 
   const hugoRelPath = destination.relativePath(slug);
   const destPath = destination.filePath(slug);
 
   try {
-    await makeDir(destination.dirPath);
+    await adapter.ensureDir(destination.dirPath);
   } catch (err) {
     log.warn(`Unable to ensure destination directory ${destination.dirPath}`, err);
   }
@@ -302,7 +279,7 @@ export async function publishDoc(
   const fileContent = renderMarkdownFile(converted);
 
   try {
-    await putFile(destPath, fileContent);
+    await adapter.putTextFile(destPath, fileContent);
   } catch (err) {
     return {
       success: false,
@@ -311,11 +288,11 @@ export async function publishDoc(
   }
 
   if (previousEntry?.hugoPath && previousEntry.hugoPath !== hugoRelPath) {
-    await removePublishedPageArtifacts(previousEntry.hugoPath, config);
+    await removePublishedPageArtifacts(previousEntry.hugoPath, config, adapter);
   }
 
   const orphanedImages = await reconcileImageRefsForDoc(docId, previousEntry?.images ?? [], publishedImages);
-  await removePublishedFiles(orphanedImages, config);
+  await removePublishedFiles(orphanedImages, adapter);
 
   const lastSync = new Date().toISOString();
   let stableHash = converted.frontMatter.hash;
@@ -346,7 +323,7 @@ export async function publishDoc(
   }
 
   try {
-    await triggerHugoRefresh(config);
+    await triggerHugoRefresh(config, adapter);
   } catch (err) {
     log.warn(`Unable to trigger Hugo refresh for ${docId}`, err);
   }
@@ -368,24 +345,24 @@ export interface UnpublishResult {
 
 /**
  * Unpublishes a previously published SiYuan document from the Hugo project.
- *
- * @param docId SiYuan document identifier.
- * @param config Active Hugo publishing configuration.
- * @returns The unpublish operation result.
  */
-export async function unpublishDoc(docId: string, config: HugoConfig): Promise<UnpublishResult> {
+export async function unpublishDoc(
+  docId: string,
+  config: HugoConfig,
+  adapter: StorageAdapter
+): Promise<UnpublishResult> {
   const entry = await getSyncEntry(docId);
   if (!entry?.hugoPath) {
     return { success: false, message: "Document non publié" };
   }
 
-  await removePublishedPageArtifacts(entry.hugoPath, config);
+  await removePublishedPageArtifacts(entry.hugoPath, config, adapter);
 
   const orphanedImages = await reconcileImageRefsForDoc(docId, entry.images, []);
-  await removePublishedFiles(orphanedImages, config);
+  await removePublishedFiles(orphanedImages, adapter);
 
   try {
-    await triggerHugoRefresh(config);
+    await triggerHugoRefresh(config, adapter);
   } catch (err) {
     log.warn(`Unable to trigger Hugo refresh after unpublish for ${docId}`, err);
   }
@@ -396,19 +373,19 @@ export async function unpublishDoc(docId: string, config: HugoConfig): Promise<U
 
 /**
  * Computes the current publish status for a SiYuan document.
- *
- * @param docId SiYuan document identifier.
- * @param config Active Hugo publishing configuration.
- * @returns The current sync status and related metadata.
  */
-export async function getDocStatus(docId: string, config: HugoConfig): Promise<StatusResult> {
+export async function getDocStatus(
+  docId: string,
+  config: HugoConfig,
+  adapter: StorageAdapter
+): Promise<StatusResult> {
   const entry = await getSyncEntry(docId);
   if (!entry?.hugoPath) {
     return { status: "not-published", currentHash: "" };
   }
 
-  const hugoPath = `${toWorkspacePath(config.hugoProjectPath)}/${entry.hugoPath}`;
-  const exists = await fileExists(hugoPath);
+  const hugoPath = `${adapter.hugoBase}/${entry.hugoPath}`;
+  const exists = await adapter.fileExists(hugoPath);
   if (!exists) {
     return {
       status: "not-published",
@@ -433,24 +410,18 @@ export interface OrphanResult {
 
 /**
  * Removes published Hugo pages whose backing SiYuan documents no longer exist or moved.
- *
- * @param config Active Hugo publishing configuration.
- * @returns Lists of removed orphan paths and encountered errors.
  */
-export async function reconcileOrphanDocs(config: HugoConfig): Promise<OrphanResult> {
+export async function reconcileOrphanDocs(
+  config: HugoConfig,
+  adapter: StorageAdapter
+): Promise<OrphanResult> {
   const removed: string[] = [];
   const errors: string[] = [];
 
-  const destination = buildHugoDestination(config);
-  const hugoBase = toWorkspacePath(config.hugoProjectPath);
+  const destination = buildHugoDestination(config, adapter);
 
-  /**
-   * Recursively scans the Hugo content tree for orphaned published files.
-   *
-   * @param dirPath Directory path to scan.
-   */
   async function scanDir(dirPath: string): Promise<void> {
-    const entries = await readDir(dirPath);
+    const entries = await adapter.listDir(dirPath);
     for (const entry of entries) {
       const fullPath = `${dirPath}/${entry.name}`;
       if (entry.isDir) { await scanDir(fullPath); continue; }
@@ -458,7 +429,7 @@ export async function reconcileOrphanDocs(config: HugoConfig): Promise<OrphanRes
 
       let content: string;
       try {
-        content = await readFileText(fullPath);
+        content = await adapter.readText(fullPath);
       } catch (err) {
         log.warn(`Unable to read candidate orphan file ${fullPath}`, err);
         continue;
@@ -468,17 +439,18 @@ export async function reconcileOrphanDocs(config: HugoConfig): Promise<OrphanRes
       if (!match) continue;
       const siyuanId = match[1];
 
-      const relPath = fullPath.startsWith(`${hugoBase}/`)
-        ? fullPath.slice(`${hugoBase}/`.length)
+      const relPath = fullPath.startsWith(`${adapter.hugoBase}/`)
+        ? fullPath.slice(`${adapter.hugoBase}/`.length)
         : fullPath;
 
+      const { docExists } = await import("./api");
       const exists = await docExists(siyuanId);
       const syncEntry = await getSyncEntry(siyuanId);
       const isStale = exists && !!syncEntry?.hugoPath && syncEntry.hugoPath !== relPath;
       if (!isStale && exists) continue;
 
       try {
-        await removePublishedPageArtifacts(relPath, config);
+        await removePublishedPageArtifacts(relPath, config, adapter);
         if (!exists) await removeSyncEntry(siyuanId);
         removed.push(relPath);
       } catch (err) {
@@ -495,7 +467,7 @@ export async function reconcileOrphanDocs(config: HugoConfig): Promise<OrphanRes
 
   if (removed.length > 0) {
     try {
-      await triggerHugoRefresh(config);
+      await triggerHugoRefresh(config, adapter);
     } catch (err) {
       log.warn("Unable to trigger Hugo refresh after orphan cleanup", err);
     }
@@ -503,6 +475,7 @@ export async function reconcileOrphanDocs(config: HugoConfig): Promise<OrphanRes
 
   return { removed, errors };
 }
+
 export interface RetreeResult {
   moved: number;
   errors: string[];
@@ -511,22 +484,20 @@ export interface RetreeResult {
 /**
  * Re-publishes all mirrored documents to update their Hugo paths.
  *
- * Called when `preserveDocTree` is toggled so that existing notes are
- * reorganized in the Hugo content tree to match (or flatten) the SiYuan
- * hierarchy. Each call to `publishDoc` detects path changes and removes the
- * old file before writing the new one.
- *
- * @param config Active Hugo publishing configuration (with the new toggle value).
- * @returns Counts of moved documents and any encountered errors.
+ * Called when `preserveDocTree` is toggled so existing notes are
+ * reorganized in the Hugo content tree.
  */
-export async function retreePublishedDocs(config: HugoConfig): Promise<RetreeResult> {
+export async function retreePublishedDocs(
+  config: HugoConfig,
+  adapter: StorageAdapter
+): Promise<RetreeResult> {
   const docIds = await getMirroredDocIds();
   let moved = 0;
   const errors: string[] = [];
 
   for (const docId of docIds) {
     try {
-      const result = await publishDoc(docId, config);
+      const result = await publishDoc(docId, config, adapter);
       if (result.success) {
         moved++;
       } else {
