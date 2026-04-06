@@ -76,6 +76,7 @@ export default class HugoPublisherPlugin extends Plugin {
       },
       runOrphanCleanup: () => this.runOrphanCleanup(false),
       onPreserveDocTreeChange: (enabled) => this.retreePublishedDocs(enabled),
+      onSlugModeChange: (mode) => this.republishForSlugModeChange(mode),
     });
 
     if (this.config?.autoCleanOrphans) {
@@ -174,6 +175,31 @@ export default class HugoPublisherPlugin extends Plugin {
     } catch (err) {
       log.error("Retree failed", err);
       showToast(`Retree failed: ${getErrorMessage(err)}`, "error", 6000);
+    }
+  }
+
+  /**
+   * Re-publishes all published documents after a `slugMode` change.
+   *
+   * @param mode New slug mode value.
+   */
+  async republishForSlugModeChange(mode: HugoConfig["slugMode"]): Promise<void> {
+    if (!this.config) return;
+    const label = mode === "id" ? "SiYuan ID" : "title";
+    showToast(`Reorganizing notes for ${label} slug mode…`, "info", 3000);
+    try {
+      const { moved, errors } = await retreePublishedDocs(this.config, this.getAdapter());
+      if (moved > 0) {
+        showToast(`Reorganized ${moved} note(s) for ${label} slug mode`, "success", 5000);
+        await this.refreshAllOpenDocs();
+      }
+      if (errors.length > 0) {
+        log.error("Slug mode republish errors", errors);
+        showToast(`Slug mode update: ${errors.length} error(s) — see console`, "error", 6000);
+      }
+    } catch (err) {
+      log.error("Slug mode republish failed", err);
+      showToast(`Slug mode update failed: ${getErrorMessage(err)}`, "error", 6000);
     }
   }
 
