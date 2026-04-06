@@ -1,15 +1,16 @@
 import type { SyncStatus, DocSyncEntry, ImageRefStore, SyncMirrorStore } from "./types";
 import { hashContent } from "./hash";
-import { buildSyncSignature, cleanSiYuanMarkdown } from "./converter";
+import { buildSyncSignature, buildMetaSignature, cleanSiYuanMarkdown } from "./converter";
 import { getBlockAttrs, setBlockAttrs } from "./api";
 import { createLogger } from "./logger";
 import { migrateImageRefStore, migrateSyncMirrorStore, wrapVersionedPayload } from "./data-migrations";
 
-const ATTR_HASH     = "custom-hugo-hash";
+const ATTR_HASH = "custom-hugo-hash";
+const ATTR_META_HASH = "custom-hugo-meta-hash";
 const ATTR_LASTSYNC = "custom-hugo-lastsync";
-const ATTR_PATH     = "custom-hugo-path";
-const ATTR_SLUG     = "custom-hugo-slug";
-const ATTR_IMAGES   = "custom-hugo-images";
+const ATTR_PATH = "custom-hugo-path";
+const ATTR_SLUG = "custom-hugo-slug";
+const ATTR_IMAGES = "custom-hugo-images";
 const IMAGE_REFS_KEY = "hugo-image-refs";
 const SYNC_MIRROR_KEY = "hugo-sync-mirror";
 const log = createLogger("sync-state");
@@ -120,9 +121,10 @@ export async function getSyncEntry(docId: string): Promise<DocSyncEntry | null> 
     }
     return {
       hash,
+      metaHash: attrs[ATTR_META_HASH] || undefined,
       lastSync: attrs[ATTR_LASTSYNC] ?? "",
       hugoPath: attrs[ATTR_PATH] ?? "",
-      slug:     attrs[ATTR_SLUG]  ?? "",
+      slug: attrs[ATTR_SLUG] ?? "",
       images,
     };
   } catch {
@@ -144,15 +146,14 @@ export async function setSyncEntry(docId: string, entry: DocSyncEntry): Promise<
 
   try {
     await setBlockAttrs(docId, {
-      [ATTR_HASH]:     entry.hash,
+      [ATTR_HASH]: entry.hash,
+      [ATTR_META_HASH]: entry.metaHash ?? "",
       [ATTR_LASTSYNC]: entry.lastSync,
-      [ATTR_PATH]:     entry.hugoPath,
-      [ATTR_SLUG]:     entry.slug,
-      [ATTR_IMAGES]:   JSON.stringify(entry.images),
+      [ATTR_PATH]: entry.hugoPath,
+      [ATTR_SLUG]: entry.slug,
+      [ATTR_IMAGES]: JSON.stringify(entry.images),
     });
   } catch (err) {
-    // Block attrs are a convenience cache; the mirror store is the source of truth.
-    // "tree not found" happens when the document's notebook is not mounted.
     log.warn(`Unable to write sync attrs for ${docId} (notebook may be unmounted)`, err);
   }
 }
@@ -171,11 +172,12 @@ export async function removeSyncEntry(docId: string): Promise<void> {
 
   try {
     await setBlockAttrs(docId, {
-      [ATTR_HASH]:     "",
+      [ATTR_HASH]: "",
+      [ATTR_META_HASH]: "",
       [ATTR_LASTSYNC]: "",
-      [ATTR_PATH]:     "",
-      [ATTR_SLUG]:     "",
-      [ATTR_IMAGES]:   "",
+      [ATTR_PATH]: "",
+      [ATTR_SLUG]: "",
+      [ATTR_IMAGES]: "",
     });
   } catch {
     log.warn(`Unable to clear sync attrs for ${docId}`);
@@ -222,6 +224,18 @@ export async function reconcileImageRefsForDoc(
 }
 
 /**
+ * Computes and returns the meta hash for the current IAL of a document.
+ * Used to detect title/icon/banner/tags changes without re-exporting content.
+ *
+ * @param docId SiYuan document identifier.
+ * @returns The current meta hash string.
+ */
+export async function computeCurrentMetaHash(docId: string, fallbackTitle = ""): Promise<string> {
+  const ial = await getBlockAttrs(docId);
+  return hashContent(buildMetaSignature(ial, fallbackTitle));
+}
+
+/**
  * Computes the sync status of a document by hashing its current exported content.
  *
  * @param docId SiYuan document identifier.
@@ -230,7 +244,8 @@ export async function reconcileImageRefsForDoc(
  */
 export async function computeSyncStatus(
   docId: string,
-  currentContent: string
+  currentContent: string,
+  fallbackTitle = ""
 ): Promise<{ status: SyncStatus; currentHash: string }> {
   const cleaned = cleanSiYuanMarkdown(currentContent);
 
@@ -240,7 +255,7 @@ export async function computeSyncStatus(
   } catch (err) {
     log.warn(`Unable to read block attrs for sync hash on ${docId}`, err);
   }
-  const currentHash = await hashContent(buildSyncSignature(cleaned, ial));
+  const currentHash = await hashContent(buildSyncSignature(cleaned, ial, fallbackTitle));
 
   const entry = await getSyncEntry(docId);
   if (!entry) return { status: "not-published", currentHash };

@@ -1,10 +1,12 @@
 import { Plugin } from "siyuan";
 
 import type { HugoConfig } from "./types";
-import { getMirroredDocIds, getSyncEntry, initSyncState } from "./sync-state";
+import { getSyncEntry, initSyncState } from "./sync-state";
 import { initSettings, loadConfig } from "./settings";
-import { publishDoc as doPublish, unpublishDoc as doUnpublish, getDocStatus, reconcileOrphanDocs, retreePublishedDocs } from "./publisher";
+import { publishDoc as doPublish, unpublishDoc as doUnpublish, getDocStatus, reconcileOrphanDocs, retreePublishedDocs, listPublishedDocIds } from "./publisher";
+import { createStorageAdapter } from "./storage-adapter";
 import { exportMdContent } from "./api";
+import { computeCurrentMetaHash } from "./sync-state";
 import { upsertBadge } from "./ui/badge";
 import { showToast } from "./ui/toast";
 import { createLogger, getErrorMessage } from "./logger";
@@ -31,6 +33,8 @@ export default class HugoPublisherPlugin extends Plugin {
   private statusCache = new Map<string, string>();
   private editorFingerprints = new Map<string, string>();
   private tabObserver: MutationObserver | null = null;
+  private titleAreaObserver: MutationObserver | null = null;
+  private titleInputCleanup: (() => void) | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private missingDocReconcileTimer: ReturnType<typeof setTimeout> | null = null;
@@ -61,6 +65,10 @@ export default class HugoPublisherPlugin extends Plugin {
         language: "",
         badgeRefreshDelayMs: 400,
         preserveDocTree: false,
+        publishMode: "filesystem",
+        gitRepoUrl: "",
+        gitBranch: "main",
+        gitToken: "",
       },
       onConfigChange: (config) => {
         this.config = config;
@@ -106,6 +114,8 @@ export default class HugoPublisherPlugin extends Plugin {
    */
   async onunload() {
     this.tabObserver?.disconnect();
+    this.titleAreaObserver?.disconnect();
+    this.titleInputCleanup?.();
     if (this.missingDocReconcileTimer) clearTimeout(this.missingDocReconcileTimer);
     if (this.missingDocReconcileInterval) clearInterval(this.missingDocReconcileInterval);
   }
@@ -115,10 +125,14 @@ export default class HugoPublisherPlugin extends Plugin {
    *
    * @param silent When `true`, suppresses the "no orphans" toast.
    */
+  private getAdapter() {
+    return createStorageAdapter(this.config!);
+  }
+
   async runOrphanCleanup(silent = false): Promise<void> {
     if (!this.config) return;
     try {
-      const { removed, errors } = await reconcileOrphanDocs(this.config);
+      const { removed, errors } = await reconcileOrphanDocs(this.config, this.getAdapter());
       if (removed.length > 0) {
         showToast(`Orphans removed: ${removed.length}`, "info");
         await this.refreshAllOpenDocs();
@@ -126,7 +140,8 @@ export default class HugoPublisherPlugin extends Plugin {
         showToast("No orphans found", "info");
       }
       if (errors.length > 0) {
-        showToast(`Orphan cleanup errors: ${errors.length}`, "error");
+        log.error("Orphan cleanup errors", errors);
+        showToast(`Orphan cleanup errors: ${errors[0]}`, "error", 8000);
       }
     } catch (err) {
       log.error("Orphan cleanup failed", err);
@@ -146,7 +161,7 @@ export default class HugoPublisherPlugin extends Plugin {
     const label = enabled ? "tree" : "flat";
     showToast(`Reorganizing notes to ${label} structure…`, "info", 3000);
     try {
-      const { moved, errors } = await retreePublishedDocs(this.config);
+      const { moved, errors } = await retreePublishedDocs(this.config, this.getAdapter());
       if (moved > 0) {
         showToast(`Reorganized ${moved} note(s) to ${label} structure`, "success", 5000);
         await this.refreshAllOpenDocs();
@@ -192,7 +207,7 @@ export default class HugoPublisherPlugin extends Plugin {
       return;
     }
     try {
-      const result = await doUnpublish(docId, this.config);
+      const result = await doUnpublish(docId, this.config, this.getAdapter());
       if (result.success) {
         this.statusCache.set(docId, "not-published");
         this.editorFingerprints.delete(docId);
@@ -222,7 +237,7 @@ export default class HugoPublisherPlugin extends Plugin {
     }
 
     if (!silent) showToast("Publication en cours…", "info", 2000);
-    const result = await doPublish(docId, this.config);
+    const result = await doPublish(docId, this.config, this.getAdapter());
 
     if (result.success) {
       if (!silent) {
@@ -251,7 +266,7 @@ export default class HugoPublisherPlugin extends Plugin {
   async refreshDocStatus(docId: string, protyleEl?: HTMLElement): Promise<void> {
     if (!this.config?.hugoProjectPath) return;
     try {
-      const result = await getDocStatus(docId, this.config);
+      const result = await getDocStatus(docId, this.config, this.getAdapter());
       upsertBadge(protyleEl ?? null, docId, result.status, result.lastSync);
       this.statusCache.set(docId, result.status);
       if (result.status === "synced") {
@@ -311,7 +326,16 @@ export default class HugoPublisherPlugin extends Plugin {
       return;
     }
 
-    const nextStatus = current === baseline ? "synced" : "modified";
+    let nextStatus: "synced" | "modified" = current === baseline ? "synced" : "modified";
+
+    // If fingerprint says synced, verify metaHash as well (title/icon/banner may have
+    // changed without updating the fingerprint baseline).
+    if (nextStatus === "synced" && entry.metaHash) {
+      try {
+        if (await computeCurrentMetaHash(docId, this.getVisibleTitle(protyleEl)) !== entry.metaHash) nextStatus = "modified";
+      } catch { /* non-blocking */ }
+    }
+
     upsertBadge(protyleEl ?? null, docId, nextStatus, entry.lastSync);
     this.statusCache.set(docId, nextStatus);
   }
@@ -337,10 +361,29 @@ export default class HugoPublisherPlugin extends Plugin {
    * @returns Fingerprint string or an empty string when unavailable.
    */
   private computeEditorFingerprint(protyleEl: HTMLElement): string {
-    const title = protyleEl.querySelector<HTMLInputElement | HTMLTextAreaElement>(".protyle-title__input")?.value ?? "";
+    const title = this.getVisibleTitle(protyleEl);
     const wysiwyg = protyleEl.querySelector<HTMLElement>(".protyle-wysiwyg");
     const body = this.serializeEditorFingerprint(wysiwyg);
-    return `${title}\n${body}`;
+
+    const iconEl = protyleEl.querySelector<HTMLElement>(".protyle-title__icon");
+    const icon = iconEl?.querySelector<HTMLImageElement>("img")?.src
+      ?? iconEl?.textContent?.trim()
+      ?? "";
+
+    const banner = protyleEl.querySelector<HTMLImageElement>(".protyle-background__img img")?.src ?? "";
+
+    return `${title}\n${icon}\n${banner}\n${body}`;
+  }
+
+  /**
+   * Reads the visible editor title from the current protyle.
+   *
+   * @param protyleEl Active protyle root element.
+   * @returns Visible title text.
+   */
+  private getVisibleTitle(protyleEl: HTMLElement): string {
+    const titleEl = protyleEl.querySelector<HTMLElement>(".protyle-title__input");
+    return (titleEl as HTMLInputElement | null)?.value || titleEl?.textContent?.trim() || "";
   }
 
   /**
@@ -388,6 +431,10 @@ export default class HugoPublisherPlugin extends Plugin {
         if (this.activeDocId === docId) {
           this.activeDocId = null;
           this.activeProtyleEl = undefined;
+          this.titleAreaObserver?.disconnect();
+          this.titleAreaObserver = null;
+          this.titleInputCleanup?.();
+          this.titleInputCleanup = null;
         }
       },
       refreshDocStatus: (docId, protyleEl) => this.refreshDocStatus(docId, protyleEl),
@@ -470,6 +517,69 @@ export default class HugoPublisherPlugin extends Plugin {
   private setActiveDoc(docId: string, protyleEl?: HTMLElement): void {
     this.activeDocId = docId;
     this.activeProtyleEl = protyleEl;
+    this.observeTitleArea(docId, protyleEl);
+  }
+
+  /**
+   * Observes icon and banner DOM mutations for the active protyle.
+   *
+   * SiYuan updates icon/banner via direct attribute API calls that do NOT
+   * emit a `ws-main transactions` event, so we need a DOM observer to detect
+   * those changes and trigger a badge refresh.
+   *
+   * @param docId Active SiYuan document identifier.
+   * @param protyleEl Active protyle root element when available.
+   */
+  private observeTitleArea(docId: string, protyleEl?: HTMLElement): void {
+    this.titleAreaObserver?.disconnect();
+    this.titleAreaObserver = null;
+    this.titleInputCleanup?.();
+    this.titleInputCleanup = null;
+    if (!protyleEl) return;
+
+    const titleContainer = protyleEl.querySelector<HTMLElement>(".protyle-title");
+    const titleInput = protyleEl.querySelector<HTMLElement>(".protyle-title__input");
+    const titleEditable = titleInput
+      ?? titleContainer?.querySelector<HTMLElement>("input, textarea, [contenteditable='true']");
+
+    if (titleContainer) {
+      const onTitleChange = () => this.scheduleRefresh(docId, protyleEl);
+      titleContainer.addEventListener("input", onTitleChange, true);
+      titleContainer.addEventListener("change", onTitleChange, true);
+      titleContainer.addEventListener("keyup", onTitleChange, true);
+      titleContainer.addEventListener("blur", onTitleChange, true);
+      titleContainer.addEventListener("compositionend", onTitleChange, true);
+      this.titleInputCleanup = () => {
+        titleContainer.removeEventListener("input", onTitleChange, true);
+        titleContainer.removeEventListener("change", onTitleChange, true);
+        titleContainer.removeEventListener("keyup", onTitleChange, true);
+        titleContainer.removeEventListener("blur", onTitleChange, true);
+        titleContainer.removeEventListener("compositionend", onTitleChange, true);
+      };
+    }
+
+    const targets = [
+      titleContainer,
+      protyleEl.querySelector(".protyle-title__icon"),
+      titleEditable,
+      protyleEl.querySelector(".protyle-background"),
+    ].filter((el): el is Element => el !== null);
+
+    if (targets.length === 0) return;
+
+    this.titleAreaObserver = new MutationObserver(() => {
+      this.scheduleRefresh(docId, protyleEl);
+    });
+
+    for (const target of targets) {
+      this.titleAreaObserver.observe(target, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ["src", "style", "class", "data-icon"],
+      });
+    }
   }
 
   /**
@@ -491,7 +601,7 @@ export default class HugoPublisherPlugin extends Plugin {
     if (typeof document !== "undefined" && document.hidden) return;
 
     this.isReconcilingMissingDocs = true;
-    const trackedDocIds = await getMirroredDocIds();
+    const trackedDocIds = await listPublishedDocIds(this.config!, this.getAdapter());
     try {
       if (trackedDocIds.length === 0) return;
 

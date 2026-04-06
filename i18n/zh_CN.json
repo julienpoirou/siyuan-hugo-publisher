@@ -16,5 +16,9 @@
   "autoSyncOnSave": "保存时自动同步",
   "slugMode": "Slug 模式",
   "language": "Hugo 语言前缀",
-  "preserveDocTree": "镜像文档树结构"
+  "preserveDocTree": "镜像文档树结构",
+  "publishMode": "发布模式",
+  "gitRepoUrl": "Git 仓库 URL",
+  "gitBranch": "Git 分支",
+  "gitToken": "Git Token"
 }

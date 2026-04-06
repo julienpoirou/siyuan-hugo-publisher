@@ -3,7 +3,6 @@ services:
     build:
       context: .
       dockerfile: docker/siyuan/Dockerfile
-    container_name: siyuan
     restart: unless-stopped
     ports:
       - "${SIYUAN_PORT:-6806}:6806"
@@ -27,7 +26,6 @@ services:
     build:
       context: .
       dockerfile: docker/hugo/Dockerfile
-    container_name: hugo
     restart: unless-stopped
     ports:
       - "${HUGO_PORT:-1313}:1313"
@@ -36,6 +34,10 @@ services:
       - SITE_TITLE=${HUGO_TITLE:-Mon Blog}
       - SITE_LANGUAGE_CODE=${HUGO_LANGUAGE_CODE:-fr}
       - HUGO_POLL_INTERVAL=${HUGO_POLL_INTERVAL:-700ms}
+      - HUGO_GIT_REPO_URL=${HUGO_GIT_REPO_URL:-}
+      - HUGO_GIT_BRANCH=${HUGO_GIT_BRANCH:-main}
+      - HUGO_GIT_TOKEN=${HUGO_GIT_TOKEN:-}
+      - HUGO_GIT_POLL_INTERVAL=${HUGO_GIT_POLL_INTERVAL:-5}
       - SITE_THEME_GIT=${HUGO_THEME_GIT:-}
       - SITE_THEME=${HUGO_THEME:-}
     volumes:
@@ -53,10 +55,7 @@ services:
 
 volumes:
   siyuan_workspace:
-    name: siyuan_workspace
   hugo_site:
-    name: hugo_site
 
 networks:
   siyuan_net:
-    name: siyuan_net
