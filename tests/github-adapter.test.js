@@ -12,29 +12,22 @@ function jsonResponse(payload, status = 200) {
   };
 }
 
-test("GitHubAdapter batches rename delete and write into one tree", async () => {
+test("GitHubAdapter flushes rename delete and write via contents API", async () => {
   const calls = [];
   global.fetch = async (url, options = {}) => {
     calls.push({ url, options });
 
-    if (url.includes("/contents/content%2Fposts%2Fold-title.md?ref=feat%2Fgit")) {
+    if (url.includes("/contents/content/posts/old-title.md?ref=feat%2Fgit")) {
       return jsonResponse({ sha: "old-file-sha" });
     }
-    if (url.endsWith("/git/blobs")) {
-      return jsonResponse({ sha: "new-blob-sha" });
+    if (url.includes("/contents/content/posts/new-title.md?ref=feat%2Fgit")) {
+      return jsonResponse({ sha: "new-file-sha" });
     }
-    if (url.endsWith("/git/refs/heads/feat%2Fgit")) {
-      if (!options.method) return jsonResponse({ object: { sha: "parent-commit-sha" } });
+    if (url.endsWith("/contents/content/posts/old-title.md") && options.method === "DELETE") {
       return jsonResponse({});
     }
-    if (url.endsWith("/git/commits/parent-commit-sha")) {
-      return jsonResponse({ tree: { sha: "base-tree-sha" } });
-    }
-    if (url.endsWith("/git/trees")) {
-      return jsonResponse({ sha: "new-tree-sha" });
-    }
-    if (url.endsWith("/git/commits")) {
-      return jsonResponse({ sha: "new-commit-sha" });
+    if (url.endsWith("/contents/content/posts/new-title.md") && options.method === "PUT") {
+      return jsonResponse({});
     }
 
     throw new Error(`Unexpected fetch: ${url}`);
@@ -62,13 +55,23 @@ test("GitHubAdapter batches rename delete and write into one tree", async () => 
   await adapter.putTextFile("/git-root/content/posts/new-title.md", "hello");
   await adapter.flush();
 
-  const treeCall = calls.find((call) => call.url.endsWith("/git/trees"));
-  assert.ok(treeCall, "missing tree creation call");
+  const deleteCall = calls.find((call) =>
+    call.url.endsWith("/contents/content/posts/old-title.md") && call.options.method === "DELETE"
+  );
+  assert.ok(deleteCall, "missing delete call");
+  assert.deepEqual(JSON.parse(deleteCall.options.body), {
+    message: "unpublish: content/posts/old-title.md",
+    sha: "old-file-sha",
+    branch: "feat/git",
+  });
 
-  const body = JSON.parse(treeCall.options.body);
-  assert.equal(body.base_tree, "base-tree-sha");
-  assert.deepEqual(body.tree, [
-    { path: "content/posts/old-title.md", mode: "100644", type: "blob", sha: null },
-    { path: "content/posts/new-title.md", mode: "100644", type: "blob", sha: "new-blob-sha" },
-  ]);
+  const putCall = calls.find((call) =>
+    call.url.endsWith("/contents/content/posts/new-title.md") && call.options.method === "PUT"
+  );
+  assert.ok(putCall, "missing put call");
+  const body = JSON.parse(putCall.options.body);
+  assert.equal(body.message, "publish: content/posts/new-title.md");
+  assert.equal(body.branch, "feat/git");
+  assert.equal(body.sha, "new-file-sha");
+  assert.equal(Buffer.from(body.content, "base64").toString("utf8"), "hello");
 });
