@@ -120,7 +120,8 @@ function createRelativeDirField(
     try {
       const cfg = { ...getConfig(), [key]: input.value.trim() };
       const adapter = createStorageAdapter(cfg);
-      const dirPath = `${adapter.hugoBase}/${(cfg as Record<string, string>)[key]}`;
+      const relativeDir = String(getConfigValue(cfg, key) ?? "");
+      const dirPath = `${adapter.hugoBase}/${relativeDir}`;
       await adapter.listDir(dirPath);
       testBtn.textContent = "OK";
       testBtn.title = "";
