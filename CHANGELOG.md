@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.4.0...v1.5.0) (2026-04-06)
+
+
+### Features ✨
+
+* **git:** Add git publishing, orphan cleanup, and live sync badge updates ([#24](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/24)) ([27ce5c1](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/27ce5c1b3c8109adfb01da027e8ee2c300717179))
+
 ## [1.4.0](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.3.2...v1.4.0) (2026-04-05)
 
 
