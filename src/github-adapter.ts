@@ -18,7 +18,9 @@ interface PendingTreeEntry {
   path: string;
   mode: "100644";
   type: "blob";
-  sha: string;
+  sha: string | null;
+  contentBase64?: string;
+  delete?: boolean;
 }
 
 /**
@@ -64,6 +66,15 @@ export class GitHubAdapter implements StorageAdapter {
 
   private readonly pendingEntries: PendingTreeEntry[] = [];
 
+  private queueTreeEntry(entry: PendingTreeEntry): void {
+    const existingIndex = this.pendingEntries.findIndex((candidate) => candidate.path === entry.path);
+    if (existingIndex >= 0) {
+      this.pendingEntries.splice(existingIndex, 1, entry);
+      return;
+    }
+    this.pendingEntries.push(entry);
+  }
+
   constructor(private readonly config: HugoConfig) {
     const parsed = parseGitHubUrl(config.gitRepoUrl);
     this.owner = parsed?.owner ?? "";
@@ -78,7 +89,7 @@ export class GitHubAdapter implements StorageAdapter {
 
   private headers(): Record<string, string> {
     return {
-      Authorization: `Bearer ${this.token}`,
+      Authorization: `token ${this.token}`,
       Accept: "application/vnd.github+json",
       "Content-Type": "application/json",
       "X-GitHub-Api-Version": "2022-11-28",
@@ -109,25 +120,58 @@ export class GitHubAdapter implements StorageAdapter {
     }
   }
 
-  /**
-   * Creates a Git blob on GitHub and returns its SHA.
-   * Content must already be base64-encoded.
-   */
-  private async createBlob(base64Content: string): Promise<string> {
-    const res = await fetch(
-      `${this.apiBase}/repos/${this.owner}/${this.repo}/git/blobs`,
-      {
-        method: "POST",
-        headers: this.headers(),
-        body: JSON.stringify({ content: base64Content, encoding: "base64" }),
-      }
-    );
+  private async putContents(repoPath: string, base64Content: string): Promise<void> {
+    const currentSha = await this.getFileSha(repoPath);
+    const body: Record<string, unknown> = {
+      message: `publish: ${repoPath}`,
+      content: base64Content,
+      branch: this.branch,
+    };
+    if (currentSha) body.sha = currentSha;
+
+    const res = await fetch(this.endpoint(repoPath), {
+      method: "PUT",
+      headers: this.headers(),
+      body: JSON.stringify(body),
+    });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
-      throw new Error(`GitHub create blob → HTTP ${res.status}: ${detail}`);
+      throw new Error(`GitHub PUT ${repoPath} → HTTP ${res.status}: ${detail}`);
     }
-    const json = await res.json() as { sha: string };
-    return json.sha;
+  }
+
+  private async deleteContents(repoPath: string): Promise<void> {
+    const currentSha = await this.getFileSha(repoPath);
+    if (!currentSha) return;
+
+    const res = await fetch(this.endpoint(repoPath), {
+      method: "DELETE",
+      headers: this.headers(),
+      body: JSON.stringify({
+        message: `unpublish: ${repoPath}`,
+        sha: currentSha,
+        branch: this.branch,
+      }),
+    });
+    if (res.status === 404) return;
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(`GitHub DELETE ${repoPath} → HTTP ${res.status}: ${detail}`);
+    }
+  }
+
+  private async flushViaContents(entries: PendingTreeEntry[]): Promise<void> {
+    for (const entry of entries) {
+      if (entry.delete) {
+        await this.deleteContents(entry.path);
+      } else if (entry.contentBase64) {
+        await this.putContents(entry.path, entry.contentBase64);
+      } else {
+        throw new Error(`Missing content payload for ${entry.path}`);
+      }
+    }
+    this.pendingEntries.length = 0;
+    log.info(`Committed ${entries.length} file(s) via Contents API fallback`);
   }
 
   private async blobToBase64(blob: Blob): Promise<string> {
@@ -149,17 +193,15 @@ export class GitHubAdapter implements StorageAdapter {
   async putTextFile(absolutePath: string, content: string): Promise<void> {
     const repoPath = toRepoPath(absolutePath);
     const encoded = btoa(unescape(encodeURIComponent(content)));
-    const sha = await this.createBlob(encoded);
-    this.pendingEntries.push({ path: repoPath, mode: "100644", type: "blob", sha });
-    log.info(`Blob queued: ${repoPath}`);
+    this.queueTreeEntry({ path: repoPath, mode: "100644", type: "blob", sha: "queued", contentBase64: encoded });
+    log.info(`Write queued: ${repoPath}`);
   }
 
   async putBlobFile(absolutePath: string, blob: Blob): Promise<void> {
     const repoPath = toRepoPath(absolutePath);
     const encoded = await this.blobToBase64(blob);
-    const sha = await this.createBlob(encoded);
-    this.pendingEntries.push({ path: repoPath, mode: "100644", type: "blob", sha });
-    log.info(`Blob queued: ${repoPath}`);
+    this.queueTreeEntry({ path: repoPath, mode: "100644", type: "blob", sha: "queued", contentBase64: encoded });
+    log.info(`Write queued: ${repoPath}`);
   }
 
   /**
@@ -169,98 +211,8 @@ export class GitHubAdapter implements StorageAdapter {
     if (this.pendingEntries.length === 0) return;
 
     const entries = [...this.pendingEntries];
-
-    // 1. Get current branch ref (null on empty repos)
-    const refUrl = `${this.apiBase}/repos/${this.owner}/${this.repo}/git/refs/heads/${encodeURIComponent(this.branch)}`;
-    const refRes = await fetch(refUrl, { headers: this.headers() });
-
-    let parentSha: string | null = null;
-    let baseTreeSha: string | null = null;
-
-    if (refRes.ok) {
-      const refJson = await refRes.json() as { object: { sha: string } };
-      parentSha = refJson.object.sha;
-
-      const commitRes = await fetch(
-        `${this.apiBase}/repos/${this.owner}/${this.repo}/git/commits/${parentSha}`,
-        { headers: this.headers() }
-      );
-      if (!commitRes.ok) {
-        const detail = await commitRes.text().catch(() => "");
-        throw new Error(`GitHub get commit → HTTP ${commitRes.status}: ${detail}`);
-      }
-      const commitJson = await commitRes.json() as { tree: { sha: string } };
-      baseTreeSha = commitJson.tree.sha;
-    } else if (refRes.status !== 404 && refRes.status !== 422) {
-      const detail = await refRes.text().catch(() => "");
-      throw new Error(`GitHub get ref → HTTP ${refRes.status}: ${detail}`);
-    }
-
-    // 2. Create tree
-    const treeBody: Record<string, unknown> = { tree: entries };
-    if (baseTreeSha) treeBody.base_tree = baseTreeSha;
-
-    const treeRes = await fetch(
-      `${this.apiBase}/repos/${this.owner}/${this.repo}/git/trees`,
-      { method: "POST", headers: this.headers(), body: JSON.stringify(treeBody) }
-    );
-    if (!treeRes.ok) {
-      const detail = await treeRes.text().catch(() => "");
-      throw new Error(`GitHub create tree → HTTP ${treeRes.status}: ${detail}`);
-    }
-    const treeJson = await treeRes.json() as { sha: string };
-
-    // 3. Create commit
-    const commitBody: Record<string, unknown> = {
-      message: `publish: ${entries.length} file(s)`,
-      tree: treeJson.sha,
-    };
-    if (parentSha) commitBody.parents = [parentSha];
-
-    const newCommitRes = await fetch(
-      `${this.apiBase}/repos/${this.owner}/${this.repo}/git/commits`,
-      { method: "POST", headers: this.headers(), body: JSON.stringify(commitBody) }
-    );
-    if (!newCommitRes.ok) {
-      const detail = await newCommitRes.text().catch(() => "");
-      throw new Error(`GitHub create commit → HTTP ${newCommitRes.status}: ${detail}`);
-    }
-    const newCommitJson = await newCommitRes.json() as { sha: string };
-
-    // 4. Advance or create the branch ref
-    //    On 422 (not fast-forward) the branch moved between step 1 and now:
-    //    re-fetch the new tip, rebuild the commit on top of it, retry once.
-    if (parentSha) {
-      // force: true lets GitHub accept the update even if our commit's parent
-      // is stale due to CDN propagation delay. Safe here because this repo is
-      // dedicated to Hugo content and only this plugin writes to it.
-      const updateRes = await fetch(refUrl, {
-        method: "PATCH",
-        headers: this.headers(),
-        body: JSON.stringify({ sha: newCommitJson.sha, force: true }),
-      });
-      if (!updateRes.ok) {
-        const detail = await updateRes.text().catch(() => "");
-        throw new Error(`GitHub update ref → HTTP ${updateRes.status}: ${detail}`);
-      }
-    } else {
-      const createRefRes = await fetch(
-        `${this.apiBase}/repos/${this.owner}/${this.repo}/git/refs`,
-        {
-          method: "POST",
-          headers: this.headers(),
-          body: JSON.stringify({ ref: `refs/heads/${this.branch}`, sha: newCommitJson.sha }),
-        }
-      );
-      if (!createRefRes.ok) {
-        const detail = await createRefRes.text().catch(() => "");
-        throw new Error(`GitHub create ref → HTTP ${createRefRes.status}: ${detail}`);
-      }
-    }
-
-    // Clear queue only after full success
-    this.pendingEntries.length = 0;
-    log.info(`Committed ${entries.length} file(s) via Trees API`);
+    await this.flushViaContents(entries);
+    return;
   }
 
   // ---------------------------------------------------------------------------
@@ -286,23 +238,8 @@ export class GitHubAdapter implements StorageAdapter {
 
   async deleteFile(absolutePath: string): Promise<void> {
     const repoPath = toRepoPath(absolutePath);
-    const sha = await this.getFileSha(repoPath);
-    if (!sha) return;
-
-    const res = await fetch(this.endpoint(repoPath), {
-      method: "DELETE",
-      headers: this.headers(),
-      body: JSON.stringify({
-        message: `unpublish: ${repoPath}`,
-        sha,
-        branch: this.branch,
-      }),
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      throw new Error(`GitHub DELETE ${repoPath} → HTTP ${res.status}: ${detail}`);
-    }
-    log.info(`DELETE ${repoPath}`);
+    this.queueTreeEntry({ path: repoPath, mode: "100644", type: "blob", sha: null, delete: true });
+    log.info(`Delete queued: ${repoPath}`);
   }
 
   async ensureDir(_absolutePath: string): Promise<void> { /* no-op */ }

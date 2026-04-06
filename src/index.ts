@@ -1,9 +1,9 @@
 import { Plugin } from "siyuan";
 
 import type { HugoConfig } from "./types";
-import { getMirroredDocIds, getSyncEntry, initSyncState } from "./sync-state";
+import { getSyncEntry, initSyncState } from "./sync-state";
 import { initSettings, loadConfig } from "./settings";
-import { publishDoc as doPublish, unpublishDoc as doUnpublish, getDocStatus, reconcileOrphanDocs, retreePublishedDocs } from "./publisher";
+import { publishDoc as doPublish, unpublishDoc as doUnpublish, getDocStatus, reconcileOrphanDocs, retreePublishedDocs, listPublishedDocIds } from "./publisher";
 import { createStorageAdapter } from "./storage-adapter";
 import { exportMdContent } from "./api";
 import { computeCurrentMetaHash } from "./sync-state";
@@ -34,6 +34,7 @@ export default class HugoPublisherPlugin extends Plugin {
   private editorFingerprints = new Map<string, string>();
   private tabObserver: MutationObserver | null = null;
   private titleAreaObserver: MutationObserver | null = null;
+  private titleInputCleanup: (() => void) | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private missingDocReconcileTimer: ReturnType<typeof setTimeout> | null = null;
@@ -114,6 +115,7 @@ export default class HugoPublisherPlugin extends Plugin {
   async onunload() {
     this.tabObserver?.disconnect();
     this.titleAreaObserver?.disconnect();
+    this.titleInputCleanup?.();
     if (this.missingDocReconcileTimer) clearTimeout(this.missingDocReconcileTimer);
     if (this.missingDocReconcileInterval) clearInterval(this.missingDocReconcileInterval);
   }
@@ -138,7 +140,8 @@ export default class HugoPublisherPlugin extends Plugin {
         showToast("No orphans found", "info");
       }
       if (errors.length > 0) {
-        showToast(`Orphan cleanup errors: ${errors.length}`, "error");
+        log.error("Orphan cleanup errors", errors);
+        showToast(`Orphan cleanup errors: ${errors[0]}`, "error", 8000);
       }
     } catch (err) {
       log.error("Orphan cleanup failed", err);
@@ -329,7 +332,7 @@ export default class HugoPublisherPlugin extends Plugin {
     // changed without updating the fingerprint baseline).
     if (nextStatus === "synced" && entry.metaHash) {
       try {
-        if (await computeCurrentMetaHash(docId) !== entry.metaHash) nextStatus = "modified";
+        if (await computeCurrentMetaHash(docId, this.getVisibleTitle(protyleEl)) !== entry.metaHash) nextStatus = "modified";
       } catch { /* non-blocking */ }
     }
 
@@ -358,8 +361,7 @@ export default class HugoPublisherPlugin extends Plugin {
    * @returns Fingerprint string or an empty string when unavailable.
    */
   private computeEditorFingerprint(protyleEl: HTMLElement): string {
-    const titleEl = protyleEl.querySelector<HTMLElement>(".protyle-title__input");
-    const title = (titleEl as HTMLInputElement | null)?.value || titleEl?.textContent?.trim() || "";
+    const title = this.getVisibleTitle(protyleEl);
     const wysiwyg = protyleEl.querySelector<HTMLElement>(".protyle-wysiwyg");
     const body = this.serializeEditorFingerprint(wysiwyg);
 
@@ -371,6 +373,17 @@ export default class HugoPublisherPlugin extends Plugin {
     const banner = protyleEl.querySelector<HTMLImageElement>(".protyle-background__img img")?.src ?? "";
 
     return `${title}\n${icon}\n${banner}\n${body}`;
+  }
+
+  /**
+   * Reads the visible editor title from the current protyle.
+   *
+   * @param protyleEl Active protyle root element.
+   * @returns Visible title text.
+   */
+  private getVisibleTitle(protyleEl: HTMLElement): string {
+    const titleEl = protyleEl.querySelector<HTMLElement>(".protyle-title__input");
+    return (titleEl as HTMLInputElement | null)?.value || titleEl?.textContent?.trim() || "";
   }
 
   /**
@@ -420,6 +433,8 @@ export default class HugoPublisherPlugin extends Plugin {
           this.activeProtyleEl = undefined;
           this.titleAreaObserver?.disconnect();
           this.titleAreaObserver = null;
+          this.titleInputCleanup?.();
+          this.titleInputCleanup = null;
         }
       },
       refreshDocStatus: (docId, protyleEl) => this.refreshDocStatus(docId, protyleEl),
@@ -518,10 +533,35 @@ export default class HugoPublisherPlugin extends Plugin {
   private observeTitleArea(docId: string, protyleEl?: HTMLElement): void {
     this.titleAreaObserver?.disconnect();
     this.titleAreaObserver = null;
+    this.titleInputCleanup?.();
+    this.titleInputCleanup = null;
     if (!protyleEl) return;
 
+    const titleContainer = protyleEl.querySelector<HTMLElement>(".protyle-title");
+    const titleInput = protyleEl.querySelector<HTMLElement>(".protyle-title__input");
+    const titleEditable = titleInput
+      ?? titleContainer?.querySelector<HTMLElement>("input, textarea, [contenteditable='true']");
+
+    if (titleContainer) {
+      const onTitleChange = () => this.scheduleRefresh(docId, protyleEl);
+      titleContainer.addEventListener("input", onTitleChange, true);
+      titleContainer.addEventListener("change", onTitleChange, true);
+      titleContainer.addEventListener("keyup", onTitleChange, true);
+      titleContainer.addEventListener("blur", onTitleChange, true);
+      titleContainer.addEventListener("compositionend", onTitleChange, true);
+      this.titleInputCleanup = () => {
+        titleContainer.removeEventListener("input", onTitleChange, true);
+        titleContainer.removeEventListener("change", onTitleChange, true);
+        titleContainer.removeEventListener("keyup", onTitleChange, true);
+        titleContainer.removeEventListener("blur", onTitleChange, true);
+        titleContainer.removeEventListener("compositionend", onTitleChange, true);
+      };
+    }
+
     const targets = [
+      titleContainer,
       protyleEl.querySelector(".protyle-title__icon"),
+      titleEditable,
       protyleEl.querySelector(".protyle-background"),
     ].filter((el): el is Element => el !== null);
 
@@ -561,7 +601,7 @@ export default class HugoPublisherPlugin extends Plugin {
     if (typeof document !== "undefined" && document.hidden) return;
 
     this.isReconcilingMissingDocs = true;
-    const trackedDocIds = await getMirroredDocIds();
+    const trackedDocIds = await listPublishedDocIds(this.config!, this.getAdapter());
     try {
       if (trackedDocIds.length === 0) return;
 

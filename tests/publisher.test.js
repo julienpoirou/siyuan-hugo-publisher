@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const {
   deriveGeneratedPublicPaths,
+  listPublishedDocIds,
   normalizeRenderedContentForComparison,
   resolveLocalizedContentDir,
 } = require("../.test-build/src/publisher.js");
@@ -36,6 +37,35 @@ function testGeneratedPublicPaths() {
 }
 
 /**
+ * Verifies discovery of already-published notes from the Hugo content tree.
+ */
+async function testListPublishedDocIds() {
+  const entriesByPath = {
+    "/git-root/content/posts": [{ isDir: false, name: "hello.md" }, { isDir: true, name: "nested" }],
+    "/git-root/content/posts/nested": [{ isDir: false, name: "child.md" }],
+  };
+  const contentByPath = {
+    "/git-root/content/posts/hello.md": '---\nslug: "hello"\nsiyuan_id: "20240101010101-hello"\nhash: "hash-1"\n---\n',
+    "/git-root/content/posts/nested/child.md": '---\nslug: "child"\nsiyuan_id: "20240101010101-child"\nhash: "hash-2"\n---\n',
+  };
+
+  const ids = await listPublishedDocIds(
+    {
+      contentDir: "content/posts",
+      language: "",
+      preserveDocTree: false,
+    },
+    {
+      hugoBase: "/git-root",
+      listDir: async (path) => entriesByPath[path] ?? [],
+      readText: async (path) => contentByPath[path] ?? "",
+    }
+  );
+
+  assert.deepEqual(ids.sort(), ["20240101010101-child", "20240101010101-hello"]);
+}
+
+/**
  * Verifies that volatile lastmod drift does not affect sync comparison.
  */
 function testNormalizeRenderedContentForComparison() {
@@ -64,6 +94,8 @@ test("resolveLocalizedContentDir injects language after content root", testLocal
 test("resolveLocalizedContentDir prefixes custom content dirs when needed", testLocalizedContentDirForCustomRoots);
 
 test("deriveGeneratedPublicPaths returns the Hugo page artifacts to clean", testGeneratedPublicPaths);
+
+test("listPublishedDocIds discovers notes already present in Hugo content", testListPublishedDocIds);
 
 /**
  * Verifies that shortcode escaping differences are ignored during comparison.

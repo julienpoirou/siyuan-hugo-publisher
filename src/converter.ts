@@ -105,18 +105,33 @@ export function normalizeTitleImageForHash(rawTitleImage: string): string {
 }
 
 /**
+ * Resolves the effective document title used for publishing and sync metadata.
+ *
+ * Falls back to the exported document name when the root block attributes do
+ * not yet expose the current title.
+ *
+ * @param ial SiYuan block attributes.
+ * @param fallbackTitle Title derived from the exported document path.
+ * @returns Effective title string.
+ */
+export function getEffectiveTitle(ial: Record<string, string>, fallbackTitle = ""): string {
+  const title = (ial["title"] ?? "").trim();
+  return title || fallbackTitle.trim();
+}
+
+/**
  * Builds the stable content signature used to detect meaningful note changes.
  *
  * @param body Cleaned SiYuan markdown body.
  * @param ial SiYuan block attributes.
  * @returns Stable signature string.
  */
-export function buildSyncSignature(body: string, ial: Record<string, string>): string {
-  const title = (ial["title"] ?? "").trim();
+export function buildSyncSignature(body: string, ial: Record<string, string>, fallbackTitle = ""): string {
+  const title = getEffectiveTitle(ial, fallbackTitle);
   const tags = parseIALTags(ial["tags"] ?? "").join(",");
   const categories = parseIALTags(ial["categories"] ?? "").join(",");
   const icon = (ial["icon"] ?? "").trim();
-  const titleImg = (ial["title-img"] ?? "").trim();
+  const titleImg = normalizeTitleImageForHash(ial["title-img"] ?? "");
   return `${body}\n${title}\n${tags}\n${categories}\n${icon}\n${titleImg}`;
 }
 
@@ -127,12 +142,12 @@ export function buildSyncSignature(body: string, ial: Record<string, string>): s
  * @param ial SiYuan block attributes.
  * @returns Stable metadata signature string.
  */
-export function buildMetaSignature(ial: Record<string, string>): string {
-  const title = (ial["title"] ?? "").trim();
+export function buildMetaSignature(ial: Record<string, string>, fallbackTitle = ""): string {
+  const title = getEffectiveTitle(ial, fallbackTitle);
   const tags = parseIALTags(ial["tags"] ?? "").join(",");
   const categories = parseIALTags(ial["categories"] ?? "").join(",");
   const icon = (ial["icon"] ?? "").trim();
-  const titleImg = (ial["title-img"] ?? "").trim();
+  const titleImg = normalizeTitleImageForHash(ial["title-img"] ?? "");
   return `${title}\n${tags}\n${categories}\n${icon}\n${titleImg}`;
 }
 
@@ -323,7 +338,8 @@ export async function convertDoc(
 ): Promise<ConvertedDoc> {
   let body = cleanSiYuanMarkdown(rawMarkdown);
 
-  const hash = await hashContent(buildSyncSignature(body, ial));
+  const effectiveTitle = getEffectiveTitle(ial, docName) || docId;
+  const hash = await hashContent(buildSyncSignature(body, ial, effectiveTitle));
 
   const { markdown: bodyWithImages, images } = extractImages(body, config.staticDir);
   body = bodyWithImages;
@@ -335,7 +351,7 @@ export async function convertDoc(
   const created = formatSiYuanDate(ial["created"] ?? fallbackTimestamp, "1970-01-01T00:00:00");
   const updated = formatSiYuanDate(ial["updated"] ?? ial["created"] ?? fallbackTimestamp, created);
 
-  const title = ial["title"] ?? docName ?? docId;
+  const title = effectiveTitle;
   const slug = generateSlug(title, docId, config.slugMode);
 
   const titleImg = ial["title-img"] ?? "";

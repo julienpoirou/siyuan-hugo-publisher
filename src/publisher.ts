@@ -29,6 +29,13 @@ interface HugoDestination {
   relativePath: (slug: string) => string;
 }
 
+interface PublishedDocRecord {
+  docId: string;
+  hugoPath: string;
+  slug: string;
+  hash: string;
+}
+
 /**
  * Removes leading and trailing slashes from a path segment.
  */
@@ -88,6 +95,111 @@ function uniquePaths(paths: string[]): string[] {
   return Array.from(new Set(paths.map((p) => trimSlashes(p)).filter(Boolean)));
 }
 
+function parsePublishedDocRecord(content: string, hugoPath: string): PublishedDocRecord | null {
+  const docId = content.match(/^siyuan_id:\s*"([^"]+)"/m)?.[1] ?? "";
+  if (!docId) return null;
+  const slug = content.match(/^slug:\s*"([^"]+)"/m)?.[1] ?? "";
+  const hash = content.match(/^hash:\s*"([^"]+)"/m)?.[1] ?? "";
+  return {
+    docId,
+    hugoPath: trimSlashes(hugoPath),
+    slug,
+    hash,
+  };
+}
+
+function extractPublishedImageTargets(content: string, config: HugoConfig): string[] {
+  const staticDir = trimSlashes(config.staticDir);
+  const urlDir = trimSlashes(staticDir.replace(/^static\//, ""));
+  const targets = new Set<string>();
+
+  const addUrlPath = (urlPath: string): void => {
+    const normalized = urlPath.trim().replace(/^["']|["']$/g, "");
+    const prefix = `/${urlDir}/`;
+    if (!normalized.startsWith(prefix)) return;
+    const relative = normalized.slice(prefix.length).replace(/^\/+/, "");
+    if (!relative) return;
+    targets.add(`${staticDir}/${relative}`);
+  };
+
+  for (const match of content.matchAll(/!\[[^\]]*]\((\/[^)\s"'#?]+)[^)]*\)/g)) {
+    addUrlPath(match[1]);
+  }
+
+  const cover = content.match(/^cover:\s*"([^"]+)"/m)?.[1];
+  if (cover) addUrlPath(cover);
+
+  return Array.from(targets);
+}
+
+async function collectPublishedDocRecords(
+  dirPath: string,
+  adapter: StorageAdapter,
+  acc: PublishedDocRecord[] = []
+): Promise<PublishedDocRecord[]> {
+  const entries = await adapter.listDir(dirPath);
+  for (const entry of entries) {
+    const fullPath = `${dirPath}/${entry.name}`;
+    if (entry.isDir) {
+      await collectPublishedDocRecords(fullPath, adapter, acc);
+      continue;
+    }
+    if (!entry.name.endsWith(".md")) continue;
+
+    try {
+      const content = await adapter.readText(fullPath);
+      const relPath = fullPath.startsWith(`${adapter.hugoBase}/`)
+        ? fullPath.slice(`${adapter.hugoBase}/`.length)
+        : fullPath;
+      const record = parsePublishedDocRecord(content, relPath);
+      if (record) acc.push(record);
+    } catch (err) {
+      log.warn(`Unable to inspect published file ${fullPath}`, err);
+    }
+  }
+  return acc;
+}
+
+async function collectRelativeFiles(
+  dirPath: string,
+  adapter: StorageAdapter,
+  acc: string[] = []
+): Promise<string[]> {
+  const entries = await adapter.listDir(dirPath);
+  for (const entry of entries) {
+    const fullPath = `${dirPath}/${entry.name}`;
+    if (entry.isDir) {
+      await collectRelativeFiles(fullPath, adapter, acc);
+      continue;
+    }
+    const relPath = fullPath.startsWith(`${adapter.hugoBase}/`)
+      ? fullPath.slice(`${adapter.hugoBase}/`.length)
+      : fullPath;
+    acc.push(trimSlashes(relPath));
+  }
+  return acc;
+}
+
+async function findPublishedDocRecord(
+  docId: string,
+  config: HugoConfig,
+  adapter: StorageAdapter
+): Promise<PublishedDocRecord | null> {
+  const destination = buildHugoDestination(config, adapter);
+  const records = await collectPublishedDocRecords(destination.dirPath, adapter);
+  return records.find((record) => record.docId === docId) ?? null;
+}
+
+export async function listPublishedDocIds(
+  config: HugoConfig,
+  adapter: StorageAdapter
+): Promise<string[]> {
+  const mirrored = await getMirroredDocIds();
+  const destination = buildHugoDestination(config, adapter);
+  const scanned = await collectPublishedDocRecords(destination.dirPath, adapter);
+  return Array.from(new Set([...mirrored, ...scanned.map((record) => record.docId)]));
+}
+
 /**
  * Normalizes rendered Markdown before status comparison.
  */
@@ -122,8 +234,9 @@ export function deriveGeneratedPublicPaths(hugoRelPath: string): string[] {
 /**
  * Removes published files relative to the Hugo project root.
  *
- * In git mode, public artifact paths are skipped (Hugo's dev server does not
- * generate a public/ directory in the repository).
+ * Deletion is attempted for every path and adapters simply no-op when a file
+ * does not exist. This lets git-mode repositories clean checked-in `public/`
+ * artifacts when present without special casing.
  */
 async function removePublishedFiles(paths: string[], adapter: StorageAdapter): Promise<void> {
   for (const relPath of uniquePaths(paths)) {
@@ -138,16 +251,15 @@ async function removePublishedFiles(paths: string[], adapter: StorageAdapter): P
 /**
  * Removes a published content file and its generated public artifacts.
  *
- * Public artifacts are only attempted in filesystem mode.
+ * Public artifacts are attempted in both filesystem and git modes because some
+ * repositories version their generated `public/` files.
  */
 async function removePublishedPageArtifacts(
   hugoRelPath: string,
   config: HugoConfig,
   adapter: StorageAdapter
 ): Promise<void> {
-  const artifacts = config.publishMode === "git"
-    ? []
-    : deriveGeneratedPublicPaths(hugoRelPath);
+  const artifacts = deriveGeneratedPublicPaths(hugoRelPath);
 
   await removePublishedFiles([hugoRelPath, ...artifacts], adapter);
 }
@@ -258,7 +370,14 @@ export async function publishDoc(
   );
 
   const destination = buildHugoDestination(config, adapter, exported.hPath);
-  const previousEntry = await getSyncEntry(docId);
+  const discoveredPrevious = await findPublishedDocRecord(docId, config, adapter);
+  const previousEntry = await getSyncEntry(docId) ?? (discoveredPrevious ? {
+    hash: discoveredPrevious.hash,
+    lastSync: "",
+    hugoPath: discoveredPrevious.hugoPath,
+    slug: discoveredPrevious.slug,
+    images: [],
+  } : null);
 
   const slug = await resolveUniqueSlug(
     converted.frontMatter.slug,
@@ -306,7 +425,7 @@ export async function publishDoc(
 
   const lastSync = new Date().toISOString();
   let stableHash = converted.frontMatter.hash;
-  const metaHash = await computeCurrentMetaHash(docId);
+  const metaHash = await computeCurrentMetaHash(docId, docName);
 
   await setSyncEntry(docId, {
     hash: stableHash,
@@ -319,7 +438,8 @@ export async function publishDoc(
 
   try {
     const refreshed = await exportMdContent(docId);
-    const refreshedStatus = await computeSyncStatus(docId, refreshed.content);
+    const refreshedDocName = refreshed.hPath.split("/").pop() ?? docId;
+    const refreshedStatus = await computeSyncStatus(docId, refreshed.content, refreshedDocName);
     stableHash = refreshedStatus.currentHash;
     if (stableHash !== converted.frontMatter.hash) {
       await setSyncEntry(docId, {
@@ -364,7 +484,23 @@ export async function unpublishDoc(
   config: HugoConfig,
   adapter: StorageAdapter
 ): Promise<UnpublishResult> {
-  const entry = await getSyncEntry(docId);
+  const discovered = await findPublishedDocRecord(docId, config, adapter);
+  let discoveredImages: string[] = [];
+  if (discovered?.hugoPath) {
+    try {
+      const content = await adapter.readText(`${adapter.hugoBase}/${discovered.hugoPath}`);
+      discoveredImages = extractPublishedImageTargets(content, config);
+    } catch (err) {
+      log.warn(`Unable to inspect published images for ${docId}`, err);
+    }
+  }
+  const entry = await getSyncEntry(docId) ?? (discovered ? {
+    hash: discovered.hash,
+    lastSync: "",
+    hugoPath: discovered.hugoPath,
+    slug: discovered.slug,
+    images: discoveredImages,
+  } : null);
   if (!entry?.hugoPath) {
     return { success: false, message: "Document non publié" };
   }
@@ -373,6 +509,15 @@ export async function unpublishDoc(
 
   const orphanedImages = await reconcileImageRefsForDoc(docId, entry.images, []);
   await removePublishedFiles(orphanedImages, adapter);
+
+  try {
+    await adapter.flush?.();
+  } catch (err) {
+    return {
+      success: false,
+      message: `Erreur commit GitHub: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 
   try {
     await triggerHugoRefresh(config, adapter);
@@ -392,9 +537,20 @@ export async function getDocStatus(
   config: HugoConfig,
   adapter: StorageAdapter
 ): Promise<StatusResult> {
-  const entry = await getSyncEntry(docId);
+  let entry = await getSyncEntry(docId);
   if (!entry?.hugoPath) {
-    return { status: "not-published", currentHash: "" };
+    const discovered = await findPublishedDocRecord(docId, config, adapter);
+    if (!discovered?.hugoPath) {
+      return { status: "not-published", currentHash: "" };
+    }
+    entry = {
+      hash: discovered.hash,
+      lastSync: "",
+      hugoPath: discovered.hugoPath,
+      slug: discovered.slug,
+      images: [],
+    };
+    await setSyncEntry(docId, entry);
   }
 
   const hugoPath = `${adapter.hugoBase}/${entry.hugoPath}`;
@@ -410,12 +566,28 @@ export async function getDocStatus(
 
   if (entry.metaHash) {
     try {
-      if (await computeCurrentMetaHash(docId) !== entry.metaHash) {
+      const exported = await exportMdContent(docId);
+      const docName = exported.hPath.split("/").pop() ?? docId;
+      if (await computeCurrentMetaHash(docId, docName) !== entry.metaHash) {
         return { status: "modified", currentHash: entry.hash, lastSync: entry.lastSync, hugoPath: entry.hugoPath };
       }
     } catch (err) {
       log.warn(`Unable to check meta hash for ${docId}`, err);
     }
+  }
+
+  try {
+    const exported = await exportMdContent(docId);
+    const docName = exported.hPath.split("/").pop() ?? docId;
+    const status = await computeSyncStatus(docId, exported.content, docName);
+    return {
+      status: status.status,
+      currentHash: status.currentHash,
+      lastSync: entry.lastSync,
+      hugoPath: entry.hugoPath,
+    };
+  } catch (err) {
+    log.warn(`Unable to compare published hash for ${docId}`, err);
   }
 
   return {
@@ -440,6 +612,7 @@ export async function reconcileOrphanDocs(
 ): Promise<OrphanResult> {
   const removed: string[] = [];
   const errors: string[] = [];
+  const usedImages = new Set<string>();
 
   const destination = buildHugoDestination(config, adapter);
 
@@ -465,6 +638,8 @@ export async function reconcileOrphanDocs(
       const relPath = fullPath.startsWith(`${adapter.hugoBase}/`)
         ? fullPath.slice(`${adapter.hugoBase}/`.length)
         : fullPath;
+      const publishedImages = extractPublishedImageTargets(content, config);
+      publishedImages.forEach((imagePath) => usedImages.add(trimSlashes(imagePath)));
 
       const { docExists } = await import("./api");
       const exists = await docExists(siyuanId);
@@ -474,6 +649,8 @@ export async function reconcileOrphanDocs(
 
       try {
         await removePublishedPageArtifacts(relPath, config, adapter);
+        const orphanedImages = await reconcileImageRefsForDoc(siyuanId, syncEntry?.images?.length ? syncEntry.images : publishedImages, []);
+        await removePublishedFiles(orphanedImages, adapter);
         if (!exists) await removeSyncEntry(siyuanId);
         removed.push(relPath);
       } catch (err) {
@@ -488,7 +665,24 @@ export async function reconcileOrphanDocs(
     errors.push(`Scan error: ${getErrorMessage(err)}`);
   }
 
+  try {
+    const staticDir = `${adapter.hugoBase}/${trimSlashes(config.staticDir)}`;
+    const staticFiles = await collectRelativeFiles(staticDir, adapter);
+    const orphanedStaticFiles = staticFiles.filter((path) => !usedImages.has(trimSlashes(path)));
+    if (orphanedStaticFiles.length > 0) {
+      await removePublishedFiles(orphanedStaticFiles, adapter);
+      removed.push(...orphanedStaticFiles);
+    }
+  } catch (err) {
+    errors.push(`Static scan error: ${getErrorMessage(err)}`);
+  }
+
   if (removed.length > 0) {
+    try {
+      await adapter.flush?.();
+    } catch (err) {
+      errors.push(`Flush error: ${getErrorMessage(err)}`);
+    }
     try {
       await triggerHugoRefresh(config, adapter);
     } catch (err) {
@@ -514,7 +708,7 @@ export async function retreePublishedDocs(
   config: HugoConfig,
   adapter: StorageAdapter
 ): Promise<RetreeResult> {
-  const docIds = await getMirroredDocIds();
+  const docIds = await listPublishedDocIds(config, adapter);
   let moved = 0;
   const errors: string[] = [];
 
@@ -529,6 +723,13 @@ export async function retreePublishedDocs(
     } catch (err) {
       errors.push(`${docId}: ${getErrorMessage(err)}`);
     }
+  }
+
+  try {
+    const orphanResult = await reconcileOrphanDocs(config, adapter);
+    errors.push(...orphanResult.errors);
+  } catch (err) {
+    errors.push(`orphan cleanup: ${getErrorMessage(err)}`);
   }
 
   return { moved, errors };
