@@ -43,6 +43,7 @@ export default class HugoPublisherPlugin extends Plugin {
   private isReconcilingMissingDocs = false;
   private activeDocId: string | null = null;
   private activeProtyleEl: HTMLElement | undefined = undefined;
+  private publishingDocs = new Set<string>();
 
   /**
    * Initializes plugin state, settings, commands, menus, and event bindings.
@@ -236,24 +237,34 @@ export default class HugoPublisherPlugin extends Plugin {
       return;
     }
 
-    if (!silent) showToast("Publication en cours…", "info", 2000);
-    const result = await doPublish(docId, this.config, this.getAdapter());
+    if (this.publishingDocs.has(docId)) {
+      log.info(`Publish already in progress for ${docId}, skipping concurrent request`);
+      return;
+    }
 
-    if (result.success) {
-      if (!silent) {
-        const msg = [
-          `Publié : ${result.hugoPath}`,
-          result.imagesCopied ? `${result.imagesCopied} image(s)` : null,
-          result.imagesErrors?.length ? `${result.imagesErrors.length} erreur(s) image` : null,
-        ].filter(Boolean).join(" · ");
-        showToast(msg, "success", 5000);
+    this.publishingDocs.add(docId);
+    try {
+      if (!silent) showToast("Publication en cours…", "info", 2000);
+      const result = await doPublish(docId, this.config, this.getAdapter());
+
+      if (result.success) {
+        if (!silent) {
+          const msg = [
+            `Publié : ${result.hugoPath}`,
+            result.imagesCopied ? `${result.imagesCopied} image(s)` : null,
+            result.imagesErrors?.length ? `${result.imagesErrors.length} erreur(s) image` : null,
+          ].filter(Boolean).join(" · ");
+          showToast(msg, "success", 5000);
+        }
+        const now = new Date().toISOString();
+        this.statusCache.set(docId, "synced");
+        upsertBadge(protyleEl ?? null, docId, "synced", now);
+        this.captureEditorFingerprint(docId, protyleEl);
+      } else if (!silent) {
+        showToast(result.message, "error", 6000);
       }
-      const now = new Date().toISOString();
-      this.statusCache.set(docId, "synced");
-      upsertBadge(protyleEl ?? null, docId, "synced", now);
-      this.captureEditorFingerprint(docId, protyleEl);
-    } else if (!silent) {
-      showToast(result.message, "error", 6000);
+    } finally {
+      this.publishingDocs.delete(docId);
     }
   }
 
@@ -440,6 +451,9 @@ export default class HugoPublisherPlugin extends Plugin {
       refreshDocStatus: (docId, protyleEl) => this.refreshDocStatus(docId, protyleEl),
       scheduleMissingDocReconcile: () => this.scheduleMissingDocReconcile(),
       scheduleRefresh: (docId, protyleEl) => this.scheduleRefresh(docId, protyleEl),
+      scheduleRefreshIfIdle: (docId, protyleEl) => {
+        if (!this.refreshTimers.has(docId)) this.scheduleRefresh(docId, protyleEl);
+      },
       deleteStatus: (docId) => {
         this.statusCache.delete(docId);
         this.editorFingerprints.delete(docId);
@@ -558,6 +572,18 @@ export default class HugoPublisherPlugin extends Plugin {
       };
     }
 
+    this.titleAreaObserver = new MutationObserver(() => {
+      this.scheduleRefresh(docId, protyleEl);
+    });
+
+    // Observe the protyle root for direct-child structural changes.
+    // This catches .protyle-background being created, replaced, or removed even
+    // when the element reference captured below becomes stale after recreation.
+    this.titleAreaObserver.observe(protyleEl, {
+      childList: true,
+      subtree: false,
+    });
+
     const targets = [
       titleContainer,
       protyleEl.querySelector(".protyle-title__icon"),
@@ -565,19 +591,13 @@ export default class HugoPublisherPlugin extends Plugin {
       protyleEl.querySelector(".protyle-background"),
     ].filter((el): el is Element => el !== null);
 
-    if (targets.length === 0) return;
-
-    this.titleAreaObserver = new MutationObserver(() => {
-      this.scheduleRefresh(docId, protyleEl);
-    });
-
     for (const target of targets) {
       this.titleAreaObserver.observe(target, {
         subtree: true,
         childList: true,
         characterData: true,
         attributes: true,
-        attributeFilter: ["src", "style", "class", "data-icon"],
+        attributeFilter: ["src", "style", "data-icon"],
       });
     }
   }

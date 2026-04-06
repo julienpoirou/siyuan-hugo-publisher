@@ -468,7 +468,7 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
 
   setting.addItem({
     title: "Auto clean orphans",
-    description: "On startup, remove Hugo pages whose SiYuan document no longer exists",
+    description: "On plugin startup (page reload), scan Hugo content and remove published pages whose SiYuan document no longer exists. Documents deleted during an active session are always cleaned up automatically, regardless of this setting.",
     createActionElement: () => createSwitchField(fields, "autoCleanOrphans", getConfig, scheduleSave),
   });
 
