@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const {
+  buildMetaSignature,
   buildSyncSignature,
   cleanSiYuanMarkdown,
   convertDoc,
@@ -210,11 +211,25 @@ function testTitleImageHashNormalization() {
   );
   assert.equal(
     buildSyncSignature("Body", { icon: "1f389", "title-img": String.raw`url("assets/Banner%20Image.png?cache=1#hero")` }),
-    "Body\n\n\n"
+    "Body\n\n\n\n1f389\nassets/Banner Image.png"
   );
   assert.equal(
     buildSyncSignature("Body", { title: "Doc", tags: "#a #b", categories: "cat" }),
-    "Body\nDoc\na,b\ncat"
+    "Body\nDoc\na,b\ncat\n\n"
+  );
+}
+
+/**
+ * Verifies title fallback for sync and meta hashing when block attrs lag behind.
+ */
+function testSignatureTitleFallback() {
+  assert.equal(
+    buildMetaSignature({}, "Renamed Note"),
+    buildMetaSignature({ title: "Renamed Note" })
+  );
+  assert.equal(
+    buildSyncSignature("Body", {}, "Renamed Note"),
+    buildSyncSignature("Body", { title: "Renamed Note" })
   );
 }
 
@@ -266,5 +281,7 @@ test("convertDoc falls back to doc id when title slugifies to empty", testNonLat
 test("convertDoc uses deterministic fallbacks for missing timestamps", testDeterministicTimestampFallbacks);
 
 test("title image values are normalized for sync hashing", testTitleImageHashNormalization);
+
+test("signatures fall back to exported document title", testSignatureTitleFallback);
 
 test("converter fixtures remain stable", testConverterFixtures);

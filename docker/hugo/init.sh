@@ -1,7 +1,13 @@
 #!/bin/sh
 set -e
 
-SITE_DIR="/src"
+FS_SITE_DIR="/src"
+GIT_SITE_DIR="/src-git"
+SITE_DIR="$FS_SITE_DIR"
+GIT_REPO_URL="${HUGO_GIT_REPO_URL:-}"
+GIT_BRANCH="${HUGO_GIT_BRANCH:-main}"
+GIT_TOKEN="${HUGO_GIT_TOKEN:-}"
+GIT_POLL_INTERVAL="${HUGO_GIT_POLL_INTERVAL:-5}"
 
 echo "[hugo-init] Startup..."
 
@@ -71,6 +77,47 @@ LAYOUT
 {{ end }}
 LAYOUT
 }
+
+if [ -n "${GIT_REPO_URL}" ]; then
+  echo "[hugo-init] Git mode enabled: ${GIT_REPO_URL} (${GIT_BRANCH})"
+
+  if [ -n "${GIT_TOKEN}" ]; then
+    CLONE_URL=$(echo "${GIT_REPO_URL}" | sed "s|https://|https://oauth2:${GIT_TOKEN}@|")
+  else
+    CLONE_URL="${GIT_REPO_URL}"
+  fi
+
+  if [ -d "${GIT_SITE_DIR}/.git" ]; then
+    echo "[hugo-init] Repo already present, pulling latest..."
+    cd "${GIT_SITE_DIR}"
+    git remote set-url origin "${CLONE_URL}"
+    git fetch origin "${GIT_BRANCH}" --quiet
+    git reset --hard "origin/${GIT_BRANCH}"
+  else
+    echo "[hugo-init] Cloning repository into ${GIT_SITE_DIR}..."
+    until git clone --depth 1 --branch "${GIT_BRANCH}" "${CLONE_URL}" "${GIT_SITE_DIR}" 2>/dev/null; do
+      echo "[hugo-init] Repo empty or branch '${GIT_BRANCH}' missing, retry in 10s..."
+      rm -rf "${GIT_SITE_DIR}"
+      sleep 10
+    done
+  fi
+
+  SITE_DIR="${GIT_SITE_DIR}"
+
+  (
+    while true; do
+      sleep "${GIT_POLL_INTERVAL}"
+      cd "${GIT_SITE_DIR}"
+      git fetch origin "${GIT_BRANCH}" --quiet 2>/dev/null || continue
+      LOCAL=$(git rev-parse HEAD 2>/dev/null || echo "")
+      REMOTE=$(git rev-parse "origin/${GIT_BRANCH}" 2>/dev/null || echo "")
+      if [ -n "${REMOTE}" ] && [ "${LOCAL}" != "${REMOTE}" ]; then
+        echo "[hugo-init] New commits detected, updating local clone..."
+        git reset --hard "origin/${GIT_BRANCH}"
+      fi
+    done
+  ) &
+fi
 
 if [ ! -f "${SITE_DIR}/hugo.toml" ] && [ ! -f "${SITE_DIR}/config.toml" ]; then
   echo "[hugo-init] Launching a new Hugo website..."

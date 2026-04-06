@@ -1,5 +1,6 @@
 import type { ImageRef, HugoConfig } from "./types";
-import { fileExists, makeDir, readFileBlob, putFileBlob, toWorkspacePath } from "./api";
+import type { StorageAdapter } from "./storage-adapter";
+import { fileExists, readFileBlob } from "./api";
 
 export interface ImageCopyResult {
   ref: ImageRef;
@@ -10,71 +11,58 @@ export interface ImageCopyResult {
 /**
  * Copies referenced SiYuan assets into the configured Hugo static directory.
  *
+ * Source files are always read from the SiYuan workspace via the local file API.
+ * Destination writes are routed through the storage adapter (filesystem or git).
+ *
  * @param images Image references extracted from a converted document.
  * @param config Active Hugo publishing configuration.
+ * @param adapter Active storage adapter.
  * @returns Per-image copy results.
  */
 export async function copyImagesToHugo(
   images: ImageRef[],
-  config: HugoConfig
+  config: HugoConfig,
+  adapter: StorageAdapter
 ): Promise<ImageCopyResult[]> {
   if (images.length === 0) return [];
 
-  const results: ImageCopyResult[] = [];
-
-  for (const img of images) {
+  return Promise.all(images.map(async (img): Promise<ImageCopyResult> => {
     try {
       const srcPath = `/data/assets/${img.siyuanPath.replace(/^assets\//, "")}`;
-
-      const destPath = `${toWorkspacePath(config.hugoProjectPath)}/${img.targetPath}`;
+      const destPath = `${adapter.hugoBase}/${img.targetPath}`;
       const destDir = destPath.slice(0, destPath.lastIndexOf("/"));
 
-      await makeDir(destDir);
+      await adapter.ensureDir(destDir);
 
       const srcExists = await fileExists(srcPath);
       if (!srcExists) {
-        results.push({ ref: img, success: false, error: `Source introuvable: ${srcPath}` });
-        continue;
+        return { ref: img, success: false, error: `Source introuvable: ${srcPath}` };
       }
 
       const blob = await readFileBlob(srcPath);
-      await putFileBlob(destPath, blob);
+      await adapter.putBlobFile(destPath, blob);
 
-      results.push({ ref: img, success: true });
+      return { ref: img, success: true };
     } catch (err) {
-      results.push({
+      return {
         ref: img,
         success: false,
         error: err instanceof Error ? err.message : String(err),
-      });
+      };
     }
-  }
-
-  return results;
+  }));
 }
 
 /**
- * Validates that the configured Hugo project path looks like a Hugo site root.
+ * Validates the Hugo project through the active storage adapter.
  *
- * @param config Active Hugo publishing configuration.
- * @returns Validation status and an error message when invalid.
+ * @param config Active Hugo publishing configuration (used for error messages).
+ * @param adapter Active storage adapter.
+ * @returns Validation status and an optional error message.
  */
-export async function validateHugoProject(config: HugoConfig): Promise<{ valid: boolean; error?: string }> {
-  if (!config.hugoProjectPath) {
-    return { valid: false, error: "Chemin Hugo non configuré" };
-  }
-
-  const base = toWorkspacePath(config.hugoProjectPath);
-  const candidates = [`${base}/hugo.toml`, `${base}/hugo.yaml`, `${base}/config.toml`, `${base}/config.yaml`];
-
-  for (const candidate of candidates) {
-    if (await fileExists(candidate)) {
-      return { valid: true };
-    }
-  }
-
-  return {
-    valid: false,
-    error: `Aucun fichier de config Hugo trouvé dans ${base}\n(hugo.toml / config.toml attendu)`,
-  };
+export async function validateHugoProject(
+  config: HugoConfig,
+  adapter: StorageAdapter
+): Promise<{ valid: boolean; error?: string }> {
+  return adapter.validateHugoProject();
 }

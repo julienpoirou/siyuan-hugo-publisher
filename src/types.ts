@@ -44,6 +44,10 @@ export interface HugoConfig {
   language: string;
   badgeRefreshDelayMs: number;
   preserveDocTree: boolean;
+  publishMode: "filesystem" | "git";
+  gitRepoUrl: string;
+  gitBranch: string;
+  gitToken: string;
 }
 
 export const DEFAULT_CONFIG: HugoConfig = {
@@ -58,12 +62,17 @@ export const DEFAULT_CONFIG: HugoConfig = {
   language: "",
   badgeRefreshDelayMs: 400,
   preserveDocTree: false,
+  publishMode: "filesystem",
+  gitRepoUrl: "",
+  gitBranch: "main",
+  gitToken: "",
 };
 
 export type SyncStatus = "synced" | "modified" | "not-published";
 
 export interface DocSyncEntry {
   hash: string;
+  metaHash?: string;
   lastSync: string;
   hugoPath: string;
   slug: string;
