@@ -641,7 +641,7 @@ export async function reconcileOrphanDocs(
       const publishedImages = extractPublishedImageTargets(content, config);
       publishedImages.forEach((imagePath) => usedImages.add(trimSlashes(imagePath)));
 
-      const { docExists } = await import("./api");
+      const { docExists } = await import("./api.js");
       const exists = await docExists(siyuanId);
       const syncEntry = await getSyncEntry(siyuanId);
       const isStale = exists && !!syncEntry?.hugoPath && syncEntry.hugoPath !== relPath;
