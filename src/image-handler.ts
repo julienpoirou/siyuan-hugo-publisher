@@ -26,9 +26,7 @@ export async function copyImagesToHugo(
 ): Promise<ImageCopyResult[]> {
   if (images.length === 0) return [];
 
-  const results: ImageCopyResult[] = [];
-
-  for (const img of images) {
+  return Promise.all(images.map(async (img): Promise<ImageCopyResult> => {
     try {
       const srcPath = `/data/assets/${img.siyuanPath.replace(/^assets\//, "")}`;
       const destPath = `${adapter.hugoBase}/${img.targetPath}`;
@@ -38,24 +36,21 @@ export async function copyImagesToHugo(
 
       const srcExists = await fileExists(srcPath);
       if (!srcExists) {
-        results.push({ ref: img, success: false, error: `Source introuvable: ${srcPath}` });
-        continue;
+        return { ref: img, success: false, error: `Source introuvable: ${srcPath}` };
       }
 
       const blob = await readFileBlob(srcPath);
       await adapter.putBlobFile(destPath, blob);
 
-      results.push({ ref: img, success: true });
+      return { ref: img, success: true };
     } catch (err) {
-      results.push({
+      return {
         ref: img,
         success: false,
         error: err instanceof Error ? err.message : String(err),
-      });
+      };
     }
-  }
-
-  return results;
+  }));
 }
 
 /**

@@ -42,8 +42,9 @@ export function bindPluginEvents(
   });
 
   eventBus.on("ws-main", async (event: WsMainEvent) => {
-    if (event.detail?.cmd !== "transactions") return;
-    bindings.scheduleMissingDocReconcile();
+    const cmd = event.detail?.cmd;
+    if (cmd !== "transactions" && cmd !== "setBlockAttrs") return;
+    if (cmd === "transactions") bindings.scheduleMissingDocReconcile();
     const activeDocId = bindings.getActiveDocId();
     if (activeDocId) {
       bindings.scheduleRefresh(activeDocId, bindings.getActiveProtyleEl());

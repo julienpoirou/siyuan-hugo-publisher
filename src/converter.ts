@@ -115,7 +115,25 @@ export function buildSyncSignature(body: string, ial: Record<string, string>): s
   const title = (ial["title"] ?? "").trim();
   const tags = parseIALTags(ial["tags"] ?? "").join(",");
   const categories = parseIALTags(ial["categories"] ?? "").join(",");
-  return `${body}\n${title}\n${tags}\n${categories}`;
+  const icon = (ial["icon"] ?? "").trim();
+  const titleImg = (ial["title-img"] ?? "").trim();
+  return `${body}\n${title}\n${tags}\n${categories}\n${icon}\n${titleImg}`;
+}
+
+/**
+ * Builds a stable signature from IAL metadata only (no body).
+ * Used to detect title/icon/banner/tags changes without re-exporting content.
+ *
+ * @param ial SiYuan block attributes.
+ * @returns Stable metadata signature string.
+ */
+export function buildMetaSignature(ial: Record<string, string>): string {
+  const title = (ial["title"] ?? "").trim();
+  const tags = parseIALTags(ial["tags"] ?? "").join(",");
+  const categories = parseIALTags(ial["categories"] ?? "").join(",");
+  const icon = (ial["icon"] ?? "").trim();
+  const titleImg = (ial["title-img"] ?? "").trim();
+  return `${title}\n${tags}\n${categories}\n${icon}\n${titleImg}`;
 }
 
 /**

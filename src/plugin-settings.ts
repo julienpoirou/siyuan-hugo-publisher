@@ -15,6 +15,9 @@ interface SetupPluginSettingsOptions {
 
 type FieldMap = Record<string, HTMLInputElement | HTMLSelectElement>;
 
+const FS_ONLY_TITLES = new Set(["Hugo project path", "Content directory", "Images directory"]);
+const GIT_ONLY_TITLES = new Set(["Git repository URL", "Git branch", "Git token"]);
+
 function getConfigValue(config: HugoConfig, key: string): unknown {
   return (config as unknown as Record<string, unknown>)[key];
 }
@@ -69,6 +72,71 @@ function createSwitchField(
   return el;
 }
 
+/**
+ * Creates a relative-directory field (text input + Browse + Test).
+ * Browse opens the path explorer rooted at hugoProjectPath and converts the
+ * selected absolute path back to a relative one.
+ * Test verifies the resolved directory exists via the storage adapter.
+ */
+function createRelativeDirField(
+  fields: FieldMap,
+  key: string,
+  getConfig: () => HugoConfig,
+  scheduleSave: () => void,
+  placeholder: string
+): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "shp-path-field fn__flex fn__flex-1";
+
+  const input = createTextField(fields, key, getConfig, scheduleSave, placeholder);
+  input.classList.add("shp-path-field__input");
+
+  const inputWrap = document.createElement("div");
+  inputWrap.className = "shp-path-field__input-wrap";
+  inputWrap.appendChild(input);
+
+  const browseBtn = document.createElement("button");
+  browseBtn.className = "b3-button b3-button--outline";
+  browseBtn.textContent = "Browse";
+  browseBtn.style.whiteSpace = "nowrap";
+  browseBtn.addEventListener("click", () => {
+    const base = (fields.hugoProjectPath as HTMLInputElement)?.value.trim() ?? "";
+    const start = base ? `${base}/${input.value.trim()}` : input.value.trim();
+    openPathExplorer(start, (selected) => {
+      input.value = base && selected.startsWith(base)
+        ? selected.slice(base.length).replace(/^\/+/, "")
+        : selected;
+      input.dispatchEvent(new Event("change"));
+    });
+  });
+
+  const testBtn = document.createElement("button");
+  testBtn.className = "b3-button b3-button--outline";
+  testBtn.textContent = "Test";
+  testBtn.style.whiteSpace = "nowrap";
+  testBtn.addEventListener("click", async () => {
+    testBtn.disabled = true;
+    testBtn.textContent = "…";
+    try {
+      const cfg = { ...getConfig(), [key]: input.value.trim() };
+      const adapter = createStorageAdapter(cfg);
+      const dirPath = `${adapter.hugoBase}/${(cfg as Record<string, string>)[key]}`;
+      await adapter.listDir(dirPath);
+      testBtn.textContent = "OK";
+      testBtn.title = "";
+    } catch (err) {
+      testBtn.textContent = "KO";
+      testBtn.title = err instanceof Error ? err.message : String(err);
+    }
+    setTimeout(() => { testBtn.textContent = "Test"; testBtn.disabled = false; }, 2500);
+  });
+
+  wrap.appendChild(inputWrap);
+  wrap.appendChild(browseBtn);
+  wrap.appendChild(testBtn);
+  return wrap;
+}
+
 function buildConfigFromFields(fields: FieldMap): HugoConfig {
   return {
     hugoProjectPath: (fields.hugoProjectPath as HTMLInputElement).value.trim(),
@@ -90,14 +158,30 @@ function buildConfigFromFields(fields: FieldMap): HugoConfig {
 }
 
 /**
- * Returns the closest ancestor `<li>` of an element — the row container
- * used by SiYuan's Setting component.
+ * Hides/shows rows inside a setting dialog based on publish mode.
+ * We read the title from the first non-empty direct text node of .fn__flex-1.
  */
-function settingRow(el: HTMLElement): HTMLElement | null {
-  return el.closest("li") as HTMLElement | null;
+function applyModeVisibilityToContainer(container: HTMLElement, isGit: boolean): void {
+  container.querySelectorAll<HTMLElement>(".b3-label").forEach((row) => {
+    const flex1 = row.querySelector<HTMLElement>(".fn__flex-1");
+    const titleText = Array.from(flex1?.childNodes ?? [])
+      .filter((n): n is Text => n.nodeType === Node.TEXT_NODE)
+      .map((n) => n.textContent?.trim() ?? "")
+      .find((t) => t.length > 0) ?? "";
+
+    if (FS_ONLY_TITLES.has(titleText)) {
+      row.style.display = isGit ? "none" : "";
+    } else if (GIT_ONLY_TITLES.has(titleText)) {
+      row.style.display = isGit ? "" : "none";
+    }
+  });
 }
 
-function installSettingsDialogObserver(): void {
+/**
+ * Installs a MutationObserver that fires when the plugin Settings dialog opens.
+ * Calls onOpen(dialog) so the caller can apply initial row visibility.
+ */
+function installSettingsDialogObserver(onOpen: (dialog: HTMLElement) => void): void {
   const dialogObserver = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
       for (const node of Array.from(mutation.addedNodes)) {
@@ -139,6 +223,9 @@ function installSettingsDialogObserver(): void {
               button.style.display = "none";
             }
           });
+
+          // Notify caller so it can apply initial row visibility
+          onOpen(dialog);
         }
       }
     }
@@ -150,10 +237,6 @@ function installSettingsDialogObserver(): void {
 export function setupPluginSettings(options: SetupPluginSettingsOptions): Setting {
   const fields: FieldMap = {};
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // Elements whose rows are hidden/shown based on publish mode
-  const fsOnlyEls: HTMLElement[] = [];   // visible in filesystem mode only
-  const gitOnlyEls: HTMLElement[] = [];  // visible in git mode only
 
   const getConfig = (): HugoConfig => options.getConfig() ?? { ...DEFAULT_CONFIG };
 
@@ -168,22 +251,22 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
   };
 
   /**
-   * Shows/hides setting rows based on the currently selected publish mode.
-   * Uses el.closest('li') to reach the full row rendered by SiYuan's Setting API.
+   * Finds the current publish-mode value and applies row visibility.
+   * Works whether called from a select-change event or from the dialog observer.
    */
-  const applyModeVisibility = () => {
-    const isGit = (fields.publishMode as HTMLSelectElement)?.value === "git";
-    for (const el of fsOnlyEls) {
-      const row = settingRow(el);
-      if (row) row.style.display = isGit ? "none" : "";
-    }
-    for (const el of gitOnlyEls) {
-      const row = settingRow(el);
-      if (row) row.style.display = isGit ? "" : "none";
-    }
+  const applyModeVisibility = (container?: HTMLElement) => {
+    const isGit = (fields.publishMode as HTMLSelectElement | undefined)?.value === "git";
+    const target =
+      container ??
+      (fields.publishMode as HTMLElement | undefined)?.closest<HTMLElement>(".b3-dialog") ??
+      (fields.publishMode as HTMLElement | undefined)?.closest<HTMLElement>(".config__panel");
+    if (target) applyModeVisibilityToContainer(target, isGit);
   };
 
-  installSettingsDialogObserver();
+  installSettingsDialogObserver((dialog) => {
+    // Dialog is now in the DOM — apply initial visibility
+    applyModeVisibility(dialog);
+  });
 
   const setting = new Setting({});
 
@@ -199,7 +282,7 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
       select.className = "b3-select fn__flex-1";
       [
         { value: "filesystem", label: "Filesystem (shared volume)" },
-        { value: "git",        label: "Git (GitHub repository)" },
+        { value: "git", label: "Git (GitHub repository)" },
       ].forEach(({ value, label }) => {
         const opt = document.createElement("option");
         opt.value = value;
@@ -209,8 +292,6 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
       });
       select.addEventListener("change", () => { scheduleSave(); applyModeVisibility(); });
       fields.publishMode = select;
-      // Apply initial visibility once the rows are in the DOM
-      setTimeout(applyModeVisibility, 0);
       return select;
     },
   });
@@ -261,7 +342,6 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
       wrap.appendChild(inputWrap);
       wrap.appendChild(browseBtn);
       wrap.appendChild(testBtn);
-      fsOnlyEls.push(wrap);
       return wrap;
     },
   });
@@ -269,21 +349,13 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
   setting.addItem({
     title: "Content directory",
     description: "Relative path from Hugo root",
-    createActionElement: () => {
-      const el = createTextField(fields, "contentDir", getConfig, scheduleSave, "content/posts");
-      fsOnlyEls.push(el);
-      return el;
-    },
+    createActionElement: () => createRelativeDirField(fields, "contentDir", getConfig, scheduleSave, "content/posts"),
   });
 
   setting.addItem({
     title: "Images directory",
     description: "Relative path inside /static/",
-    createActionElement: () => {
-      const el = createTextField(fields, "staticDir", getConfig, scheduleSave, "static/images");
-      fsOnlyEls.push(el);
-      return el;
-    },
+    createActionElement: () => createRelativeDirField(fields, "staticDir", getConfig, scheduleSave, "static/images"),
   });
 
   // ---------------------------------------------------------------------------
@@ -293,21 +365,13 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
   setting.addItem({
     title: "Git repository URL",
     description: "GitHub HTTPS URL (e.g. https://github.com/owner/repo.git)",
-    createActionElement: () => {
-      const el = createTextField(fields, "gitRepoUrl", getConfig, scheduleSave, "https://github.com/owner/repo.git");
-      gitOnlyEls.push(el);
-      return el;
-    },
+    createActionElement: () => createTextField(fields, "gitRepoUrl", getConfig, scheduleSave, "https://github.com/owner/repo.git"),
   });
 
   setting.addItem({
     title: "Git branch",
     description: "Target branch for published content (default: main)",
-    createActionElement: () => {
-      const el = createTextField(fields, "gitBranch", getConfig, scheduleSave, "main");
-      gitOnlyEls.push(el);
-      return el;
-    },
+    createActionElement: () => createTextField(fields, "gitBranch", getConfig, scheduleSave, "main"),
   });
 
   setting.addItem({
@@ -342,7 +406,6 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
 
       wrap.appendChild(tokenInput);
       wrap.appendChild(testBtn);
-      gitOnlyEls.push(wrap);
       return wrap;
     },
   });

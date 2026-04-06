@@ -3,7 +3,8 @@ import type { StorageAdapter } from "./storage-adapter";
 import { exportMdContent, getBlockAttrs, toWorkspacePath } from "./api";
 import { convertDoc, renderMarkdownFile, slugify } from "./converter";
 import { copyImagesToHugo, validateHugoProject } from "./image-handler";
-import { computeSyncStatus, setSyncEntry, getSyncEntry, removeSyncEntry, reconcileImageRefsForDoc, getMirroredDocIds } from "./sync-state";
+import { computeSyncStatus, computeCurrentMetaHash, setSyncEntry, getSyncEntry, removeSyncEntry, reconcileImageRefsForDoc, getMirroredDocIds } from "./sync-state";
+import { hashContent } from "./hash";
 import { createLogger, getErrorMessage } from "./logger";
 
 export interface PublishResult {
@@ -294,11 +295,22 @@ export async function publishDoc(
   const orphanedImages = await reconcileImageRefsForDoc(docId, previousEntry?.images ?? [], publishedImages);
   await removePublishedFiles(orphanedImages, adapter);
 
+  try {
+    await adapter.flush?.();
+  } catch (err) {
+    return {
+      success: false,
+      message: `Erreur commit GitHub: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
   const lastSync = new Date().toISOString();
   let stableHash = converted.frontMatter.hash;
+  const metaHash = await computeCurrentMetaHash(docId);
 
   await setSyncEntry(docId, {
     hash: stableHash,
+    metaHash,
     lastSync,
     hugoPath: hugoRelPath,
     slug,
@@ -312,6 +324,7 @@ export async function publishDoc(
     if (stableHash !== converted.frontMatter.hash) {
       await setSyncEntry(docId, {
         hash: stableHash,
+        metaHash,
         lastSync,
         hugoPath: hugoRelPath,
         slug,
@@ -393,6 +406,16 @@ export async function getDocStatus(
       lastSync: entry.lastSync,
       hugoPath: entry.hugoPath,
     };
+  }
+
+  if (entry.metaHash) {
+    try {
+      if (await computeCurrentMetaHash(docId) !== entry.metaHash) {
+        return { status: "modified", currentHash: entry.hash, lastSync: entry.lastSync, hugoPath: entry.hugoPath };
+      }
+    } catch (err) {
+      log.warn(`Unable to check meta hash for ${docId}`, err);
+    }
   }
 
   return {
