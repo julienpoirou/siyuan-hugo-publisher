@@ -6,6 +6,7 @@ import { initSettings, loadConfig } from "./settings";
 import { publishDoc as doPublish, unpublishDoc as doUnpublish, getDocStatus, reconcileOrphanDocs, retreePublishedDocs } from "./publisher";
 import { createStorageAdapter } from "./storage-adapter";
 import { exportMdContent } from "./api";
+import { computeCurrentMetaHash } from "./sync-state";
 import { upsertBadge } from "./ui/badge";
 import { showToast } from "./ui/toast";
 import { createLogger, getErrorMessage } from "./logger";
@@ -32,6 +33,7 @@ export default class HugoPublisherPlugin extends Plugin {
   private statusCache = new Map<string, string>();
   private editorFingerprints = new Map<string, string>();
   private tabObserver: MutationObserver | null = null;
+  private titleAreaObserver: MutationObserver | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private missingDocReconcileTimer: ReturnType<typeof setTimeout> | null = null;
@@ -111,6 +113,7 @@ export default class HugoPublisherPlugin extends Plugin {
    */
   async onunload() {
     this.tabObserver?.disconnect();
+    this.titleAreaObserver?.disconnect();
     if (this.missingDocReconcileTimer) clearTimeout(this.missingDocReconcileTimer);
     if (this.missingDocReconcileInterval) clearInterval(this.missingDocReconcileInterval);
   }
@@ -320,7 +323,16 @@ export default class HugoPublisherPlugin extends Plugin {
       return;
     }
 
-    const nextStatus = current === baseline ? "synced" : "modified";
+    let nextStatus: "synced" | "modified" = current === baseline ? "synced" : "modified";
+
+    // If fingerprint says synced, verify metaHash as well (title/icon/banner may have
+    // changed without updating the fingerprint baseline).
+    if (nextStatus === "synced" && entry.metaHash) {
+      try {
+        if (await computeCurrentMetaHash(docId) !== entry.metaHash) nextStatus = "modified";
+      } catch { /* non-blocking */ }
+    }
+
     upsertBadge(protyleEl ?? null, docId, nextStatus, entry.lastSync);
     this.statusCache.set(docId, nextStatus);
   }
@@ -346,10 +358,19 @@ export default class HugoPublisherPlugin extends Plugin {
    * @returns Fingerprint string or an empty string when unavailable.
    */
   private computeEditorFingerprint(protyleEl: HTMLElement): string {
-    const title = protyleEl.querySelector<HTMLInputElement | HTMLTextAreaElement>(".protyle-title__input")?.value ?? "";
+    const titleEl = protyleEl.querySelector<HTMLElement>(".protyle-title__input");
+    const title = (titleEl as HTMLInputElement | null)?.value || titleEl?.textContent?.trim() || "";
     const wysiwyg = protyleEl.querySelector<HTMLElement>(".protyle-wysiwyg");
     const body = this.serializeEditorFingerprint(wysiwyg);
-    return `${title}\n${body}`;
+
+    const iconEl = protyleEl.querySelector<HTMLElement>(".protyle-title__icon");
+    const icon = iconEl?.querySelector<HTMLImageElement>("img")?.src
+      ?? iconEl?.textContent?.trim()
+      ?? "";
+
+    const banner = protyleEl.querySelector<HTMLImageElement>(".protyle-background__img img")?.src ?? "";
+
+    return `${title}\n${icon}\n${banner}\n${body}`;
   }
 
   /**
@@ -397,6 +418,8 @@ export default class HugoPublisherPlugin extends Plugin {
         if (this.activeDocId === docId) {
           this.activeDocId = null;
           this.activeProtyleEl = undefined;
+          this.titleAreaObserver?.disconnect();
+          this.titleAreaObserver = null;
         }
       },
       refreshDocStatus: (docId, protyleEl) => this.refreshDocStatus(docId, protyleEl),
@@ -479,6 +502,44 @@ export default class HugoPublisherPlugin extends Plugin {
   private setActiveDoc(docId: string, protyleEl?: HTMLElement): void {
     this.activeDocId = docId;
     this.activeProtyleEl = protyleEl;
+    this.observeTitleArea(docId, protyleEl);
+  }
+
+  /**
+   * Observes icon and banner DOM mutations for the active protyle.
+   *
+   * SiYuan updates icon/banner via direct attribute API calls that do NOT
+   * emit a `ws-main transactions` event, so we need a DOM observer to detect
+   * those changes and trigger a badge refresh.
+   *
+   * @param docId Active SiYuan document identifier.
+   * @param protyleEl Active protyle root element when available.
+   */
+  private observeTitleArea(docId: string, protyleEl?: HTMLElement): void {
+    this.titleAreaObserver?.disconnect();
+    this.titleAreaObserver = null;
+    if (!protyleEl) return;
+
+    const targets = [
+      protyleEl.querySelector(".protyle-title__icon"),
+      protyleEl.querySelector(".protyle-background"),
+    ].filter((el): el is Element => el !== null);
+
+    if (targets.length === 0) return;
+
+    this.titleAreaObserver = new MutationObserver(() => {
+      this.scheduleRefresh(docId, protyleEl);
+    });
+
+    for (const target of targets) {
+      this.titleAreaObserver.observe(target, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ["src", "style", "class", "data-icon"],
+      });
+    }
   }
 
   /**

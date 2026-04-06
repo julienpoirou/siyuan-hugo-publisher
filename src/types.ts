@@ -72,6 +72,7 @@ export type SyncStatus = "synced" | "modified" | "not-published";
 
 export interface DocSyncEntry {
   hash: string;
+  metaHash?: string;
   lastSync: string;
   hugoPath: string;
   slug: string;

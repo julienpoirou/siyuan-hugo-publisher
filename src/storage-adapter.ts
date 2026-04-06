@@ -29,6 +29,7 @@ export interface StorageAdapter {
   ensureDir(absolutePath: string): Promise<void>;
   listDir(absolutePath: string): Promise<Array<{ isDir: boolean; name: string }>>;
   validateHugoProject(): Promise<{ valid: boolean; error?: string }>;
+  flush?(): Promise<void>;
 }
 
 /**
@@ -43,12 +44,12 @@ class FilesystemAdapter implements StorageAdapter {
   }
 
   putTextFile(path: string, content: string) { return putFile(path, content); }
-  putBlobFile(path: string, blob: Blob)      { return putFileBlob(path, blob); }
-  fileExists(path: string)                   { return fileExists(path); }
-  readText(path: string)                     { return readFileText(path); }
-  deleteFile(path: string)                   { return removeFile(path); }
-  ensureDir(path: string)                    { return makeDir(path); }
-  listDir(path: string)                      { return readDir(path); }
+  putBlobFile(path: string, blob: Blob) { return putFileBlob(path, blob); }
+  fileExists(path: string) { return fileExists(path); }
+  readText(path: string) { return readFileText(path); }
+  deleteFile(path: string) { return removeFile(path); }
+  ensureDir(path: string) { return makeDir(path); }
+  listDir(path: string) { return readDir(path); }
 
   async validateHugoProject(): Promise<{ valid: boolean; error?: string }> {
     if (!this.hugoBase || this.hugoBase === "/") {
