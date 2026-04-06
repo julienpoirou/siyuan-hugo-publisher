@@ -173,6 +173,7 @@ export async function removeSyncEntry(docId: string): Promise<void> {
   try {
     await setBlockAttrs(docId, {
       [ATTR_HASH]: "",
+      [ATTR_META_HASH]: "",
       [ATTR_LASTSYNC]: "",
       [ATTR_PATH]: "",
       [ATTR_SLUG]: "",
@@ -229,9 +230,9 @@ export async function reconcileImageRefsForDoc(
  * @param docId SiYuan document identifier.
  * @returns The current meta hash string.
  */
-export async function computeCurrentMetaHash(docId: string): Promise<string> {
+export async function computeCurrentMetaHash(docId: string, fallbackTitle = ""): Promise<string> {
   const ial = await getBlockAttrs(docId);
-  return hashContent(buildMetaSignature(ial));
+  return hashContent(buildMetaSignature(ial, fallbackTitle));
 }
 
 /**
@@ -243,7 +244,8 @@ export async function computeCurrentMetaHash(docId: string): Promise<string> {
  */
 export async function computeSyncStatus(
   docId: string,
-  currentContent: string
+  currentContent: string,
+  fallbackTitle = ""
 ): Promise<{ status: SyncStatus; currentHash: string }> {
   const cleaned = cleanSiYuanMarkdown(currentContent);
 
@@ -253,7 +255,7 @@ export async function computeSyncStatus(
   } catch (err) {
     log.warn(`Unable to read block attrs for sync hash on ${docId}`, err);
   }
-  const currentHash = await hashContent(buildSyncSignature(cleaned, ial));
+  const currentHash = await hashContent(buildSyncSignature(cleaned, ial, fallbackTitle));
 
   const entry = await getSyncEntry(docId);
   if (!entry) return { status: "not-published", currentHash };
