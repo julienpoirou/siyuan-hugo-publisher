@@ -43,6 +43,7 @@ export default class HugoPublisherPlugin extends Plugin {
   private isReconcilingMissingDocs = false;
   private activeDocId: string | null = null;
   private activeProtyleEl: HTMLElement | undefined = undefined;
+  private publishingDocs = new Set<string>();
 
   /**
    * Initializes plugin state, settings, commands, menus, and event bindings.
@@ -75,6 +76,7 @@ export default class HugoPublisherPlugin extends Plugin {
       },
       runOrphanCleanup: () => this.runOrphanCleanup(false),
       onPreserveDocTreeChange: (enabled) => this.retreePublishedDocs(enabled),
+      onSlugModeChange: (mode) => this.republishForSlugModeChange(mode),
     });
 
     if (this.config?.autoCleanOrphans) {
@@ -129,6 +131,26 @@ export default class HugoPublisherPlugin extends Plugin {
     return createStorageAdapter(this.config!);
   }
 
+  /**
+   * Returns true when the active publish mode is sufficiently configured to
+   * perform storage operations. In filesystem mode this requires hugoProjectPath;
+   * in git mode it requires gitRepoUrl and gitToken.
+   */
+  private isConfigured(): boolean {
+    if (!this.config) return false;
+    if (this.config.publishMode === "git") {
+      return !!(this.config.gitRepoUrl && this.config.gitToken);
+    }
+    return !!this.config.hugoProjectPath;
+  }
+
+  private configurationErrorMessage(): string {
+    if (this.config?.publishMode === "git") {
+      return "Configure the Git repo URL and token in plugin settings first";
+    }
+    return "Configure the Hugo path in plugin settings first";
+  }
+
   async runOrphanCleanup(silent = false): Promise<void> {
     if (!this.config) return;
     try {
@@ -177,6 +199,31 @@ export default class HugoPublisherPlugin extends Plugin {
   }
 
   /**
+   * Re-publishes all published documents after a `slugMode` change.
+   *
+   * @param mode New slug mode value.
+   */
+  async republishForSlugModeChange(mode: HugoConfig["slugMode"]): Promise<void> {
+    if (!this.config) return;
+    const label = mode === "id" ? "SiYuan ID" : "title";
+    showToast(`Reorganizing notes for ${label} slug mode…`, "info", 3000);
+    try {
+      const { moved, errors } = await retreePublishedDocs(this.config, this.getAdapter());
+      if (moved > 0) {
+        showToast(`Reorganized ${moved} note(s) for ${label} slug mode`, "success", 5000);
+        await this.refreshAllOpenDocs();
+      }
+      if (errors.length > 0) {
+        log.error("Slug mode republish errors", errors);
+        showToast(`Slug mode update: ${errors.length} error(s) — see console`, "error", 6000);
+      }
+    } catch (err) {
+      log.error("Slug mode republish failed", err);
+      showToast(`Slug mode update failed: ${getErrorMessage(err)}`, "error", 6000);
+    }
+  }
+
+  /**
    * Publishes the currently active document.
    */
   async publishCurrentDoc(): Promise<void> {
@@ -202,12 +249,12 @@ export default class HugoPublisherPlugin extends Plugin {
    * @param silent When `true`, suppresses success and error toasts.
    */
   async unpublishDoc(docId: string, protyleEl?: HTMLElement, silent = false): Promise<void> {
-    if (!this.config?.hugoProjectPath) {
-      showToast("Configure the Hugo path in plugin settings first", "error");
+    if (!this.isConfigured()) {
+      showToast(this.configurationErrorMessage(), "error");
       return;
     }
     try {
-      const result = await doUnpublish(docId, this.config, this.getAdapter());
+      const result = await doUnpublish(docId, this.config!, this.getAdapter());
       if (result.success) {
         this.statusCache.set(docId, "not-published");
         this.editorFingerprints.delete(docId);
@@ -230,30 +277,40 @@ export default class HugoPublisherPlugin extends Plugin {
    * @param silent When `true`, suppresses user-facing toasts.
    */
   async publishDoc(docId: string, protyleEl?: HTMLElement, silent = false): Promise<void> {
-    if (!this.config?.hugoProjectPath) {
-      showToast("Configure the Hugo path in plugin settings first", "error");
+    if (!this.isConfigured()) {
+      showToast(this.configurationErrorMessage(), "error");
       this.setting.open(this.name);
       return;
     }
 
-    if (!silent) showToast("Publication en cours…", "info", 2000);
-    const result = await doPublish(docId, this.config, this.getAdapter());
+    if (this.publishingDocs.has(docId)) {
+      log.info(`Publish already in progress for ${docId}, skipping concurrent request`);
+      return;
+    }
 
-    if (result.success) {
-      if (!silent) {
-        const msg = [
-          `Publié : ${result.hugoPath}`,
-          result.imagesCopied ? `${result.imagesCopied} image(s)` : null,
-          result.imagesErrors?.length ? `${result.imagesErrors.length} erreur(s) image` : null,
-        ].filter(Boolean).join(" · ");
-        showToast(msg, "success", 5000);
+    this.publishingDocs.add(docId);
+    try {
+      if (!silent) showToast("Publication en cours…", "info", 2000);
+      const result = await doPublish(docId, this.config!, this.getAdapter());
+
+      if (result.success) {
+        if (!silent) {
+          const msg = [
+            `Publié : ${result.hugoPath}`,
+            result.imagesCopied ? `${result.imagesCopied} image(s)` : null,
+            result.imagesErrors?.length ? `${result.imagesErrors.length} erreur(s) image` : null,
+          ].filter(Boolean).join(" · ");
+          showToast(msg, "success", 5000);
+        }
+        const now = new Date().toISOString();
+        this.statusCache.set(docId, "synced");
+        upsertBadge(protyleEl ?? null, docId, "synced", now);
+        this.captureEditorFingerprint(docId, protyleEl);
+      } else if (!silent) {
+        showToast(result.message, "error", 6000);
       }
-      const now = new Date().toISOString();
-      this.statusCache.set(docId, "synced");
-      upsertBadge(protyleEl ?? null, docId, "synced", now);
-      this.captureEditorFingerprint(docId, protyleEl);
-    } else if (!silent) {
-      showToast(result.message, "error", 6000);
+    } finally {
+      this.publishingDocs.delete(docId);
     }
   }
 
@@ -264,9 +321,9 @@ export default class HugoPublisherPlugin extends Plugin {
    * @param protyleEl Active protyle element when available.
    */
   async refreshDocStatus(docId: string, protyleEl?: HTMLElement): Promise<void> {
-    if (!this.config?.hugoProjectPath) return;
+    if (!this.isConfigured()) return;
     try {
-      const result = await getDocStatus(docId, this.config, this.getAdapter());
+      const result = await getDocStatus(docId, this.config!, this.getAdapter());
       upsertBadge(protyleEl ?? null, docId, result.status, result.lastSync);
       this.statusCache.set(docId, result.status);
       if (result.status === "synced") {
@@ -440,6 +497,9 @@ export default class HugoPublisherPlugin extends Plugin {
       refreshDocStatus: (docId, protyleEl) => this.refreshDocStatus(docId, protyleEl),
       scheduleMissingDocReconcile: () => this.scheduleMissingDocReconcile(),
       scheduleRefresh: (docId, protyleEl) => this.scheduleRefresh(docId, protyleEl),
+      scheduleRefreshIfIdle: (docId, protyleEl) => {
+        if (!this.refreshTimers.has(docId)) this.scheduleRefresh(docId, protyleEl);
+      },
       deleteStatus: (docId) => {
         this.statusCache.delete(docId);
         this.editorFingerprints.delete(docId);
@@ -558,6 +618,18 @@ export default class HugoPublisherPlugin extends Plugin {
       };
     }
 
+    this.titleAreaObserver = new MutationObserver(() => {
+      this.scheduleRefresh(docId, protyleEl);
+    });
+
+    // Observe the protyle root for direct-child structural changes.
+    // This catches .protyle-background being created, replaced, or removed even
+    // when the element reference captured below becomes stale after recreation.
+    this.titleAreaObserver.observe(protyleEl, {
+      childList: true,
+      subtree: false,
+    });
+
     const targets = [
       titleContainer,
       protyleEl.querySelector(".protyle-title__icon"),
@@ -565,19 +637,13 @@ export default class HugoPublisherPlugin extends Plugin {
       protyleEl.querySelector(".protyle-background"),
     ].filter((el): el is Element => el !== null);
 
-    if (targets.length === 0) return;
-
-    this.titleAreaObserver = new MutationObserver(() => {
-      this.scheduleRefresh(docId, protyleEl);
-    });
-
     for (const target of targets) {
       this.titleAreaObserver.observe(target, {
         subtree: true,
         childList: true,
         characterData: true,
         attributes: true,
-        attributeFilter: ["src", "style", "class", "data-icon"],
+        attributeFilter: ["src", "style", "data-icon"],
       });
     }
   }

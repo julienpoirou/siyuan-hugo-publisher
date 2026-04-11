@@ -259,11 +259,19 @@ export function cleanSiYuanMarkdown(raw: string): string {
  * @param ialTags Raw tag string.
  * @returns Normalized tag values.
  */
-function parseIALTags(ialTags: string): string[] {
+export function parseIALTags(ialTags: string): string[] {
   if (!ialTags) return [];
+  const hashtagMatches = Array.from(ialTags.matchAll(/#([^#\s,;]+)(?=#|[\s,;]|$)/g))
+    .map((match) => match[1]?.trim() ?? "")
+    .filter(Boolean);
+
+  if (hashtagMatches.length > 0) {
+    return hashtagMatches;
+  }
+
   return ialTags
-    .split(/\s+/)
-    .map((t) => t.replace(/^#/, "").trim())
+    .split(/[\s,;]+/)
+    .map((t) => t.replace(/^#+/, "").trim())
     .filter(Boolean);
 }
 

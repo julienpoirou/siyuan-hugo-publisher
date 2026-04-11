@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   deriveGeneratedPublicPaths,
   listPublishedDocIds,
+  matchesPublishTagFilter,
   normalizeRenderedContentForComparison,
   resolveLocalizedContentDir,
 } = require("../.test-build/src/publisher.js");
@@ -89,6 +90,13 @@ function testNormalizeRenderedContentForComparison() {
   );
 }
 
+function testMatchesPublishTagFilter() {
+  assert.equal(matchesPublishTagFilter("#alpha #test #omega", "test"), true);
+  assert.equal(matchesPublishTagFilter("alpha,test,omega", "test"), true);
+  assert.equal(matchesPublishTagFilter("alpha;test;omega", "test"), true);
+  assert.equal(matchesPublishTagFilter("#alpha #omega", "test"), false);
+}
+
 test("resolveLocalizedContentDir injects language after content root", testLocalizedContentDirForDefaultContentRoot);
 
 test("resolveLocalizedContentDir prefixes custom content dirs when needed", testLocalizedContentDirForCustomRoots);
@@ -131,3 +139,5 @@ function testNormalizeRenderedContentForComparisonShortcodes() {
 test("normalizeRenderedContentForComparison ignores lastmod drift", testNormalizeRenderedContentForComparison);
 
 test("normalizeRenderedContentForComparison treats escaped and unescaped shortcodes as equal", testNormalizeRenderedContentForComparisonShortcodes);
+
+test("matchesPublishTagFilter accepts multi-tag SiYuan values", testMatchesPublishTagFilter);
