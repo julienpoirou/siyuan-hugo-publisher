@@ -131,6 +131,26 @@ export default class HugoPublisherPlugin extends Plugin {
     return createStorageAdapter(this.config!);
   }
 
+  /**
+   * Returns true when the active publish mode is sufficiently configured to
+   * perform storage operations. In filesystem mode this requires hugoProjectPath;
+   * in git mode it requires gitRepoUrl and gitToken.
+   */
+  private isConfigured(): boolean {
+    if (!this.config) return false;
+    if (this.config.publishMode === "git") {
+      return !!(this.config.gitRepoUrl && this.config.gitToken);
+    }
+    return !!this.config.hugoProjectPath;
+  }
+
+  private configurationErrorMessage(): string {
+    if (this.config?.publishMode === "git") {
+      return "Configure the Git repo URL and token in plugin settings first";
+    }
+    return "Configure the Hugo path in plugin settings first";
+  }
+
   async runOrphanCleanup(silent = false): Promise<void> {
     if (!this.config) return;
     try {
@@ -229,12 +249,12 @@ export default class HugoPublisherPlugin extends Plugin {
    * @param silent When `true`, suppresses success and error toasts.
    */
   async unpublishDoc(docId: string, protyleEl?: HTMLElement, silent = false): Promise<void> {
-    if (!this.config?.hugoProjectPath) {
-      showToast("Configure the Hugo path in plugin settings first", "error");
+    if (!this.isConfigured()) {
+      showToast(this.configurationErrorMessage(), "error");
       return;
     }
     try {
-      const result = await doUnpublish(docId, this.config, this.getAdapter());
+      const result = await doUnpublish(docId, this.config!, this.getAdapter());
       if (result.success) {
         this.statusCache.set(docId, "not-published");
         this.editorFingerprints.delete(docId);
@@ -257,8 +277,8 @@ export default class HugoPublisherPlugin extends Plugin {
    * @param silent When `true`, suppresses user-facing toasts.
    */
   async publishDoc(docId: string, protyleEl?: HTMLElement, silent = false): Promise<void> {
-    if (!this.config?.hugoProjectPath) {
-      showToast("Configure the Hugo path in plugin settings first", "error");
+    if (!this.isConfigured()) {
+      showToast(this.configurationErrorMessage(), "error");
       this.setting.open(this.name);
       return;
     }
@@ -271,7 +291,7 @@ export default class HugoPublisherPlugin extends Plugin {
     this.publishingDocs.add(docId);
     try {
       if (!silent) showToast("Publication en cours…", "info", 2000);
-      const result = await doPublish(docId, this.config, this.getAdapter());
+      const result = await doPublish(docId, this.config!, this.getAdapter());
 
       if (result.success) {
         if (!silent) {
@@ -301,9 +321,9 @@ export default class HugoPublisherPlugin extends Plugin {
    * @param protyleEl Active protyle element when available.
    */
   async refreshDocStatus(docId: string, protyleEl?: HTMLElement): Promise<void> {
-    if (!this.config?.hugoProjectPath) return;
+    if (!this.isConfigured()) return;
     try {
-      const result = await getDocStatus(docId, this.config, this.getAdapter());
+      const result = await getDocStatus(docId, this.config!, this.getAdapter());
       upsertBadge(protyleEl ?? null, docId, result.status, result.lastSync);
       this.statusCache.set(docId, result.status);
       if (result.status === "synced") {
