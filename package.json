@@ -9,7 +9,7 @@
     "check": "npm run typecheck && npm run test && npm run build"
   },
   "devDependencies": {
-    "esbuild": "^0.27.0",
+    "esbuild": "^0.28.0",
     "siyuan": "^1.1.9",
     "typescript": "^6.0.2"
   }
