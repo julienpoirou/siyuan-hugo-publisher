@@ -1,6 +1,6 @@
 {
   "name": "siyuan-hugo-publisher",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "SiYuan plugin to publish notes to Hugo with metadata mapping, image handling, auto-sync on save, and orphan-aware cleanup.",
   "scripts": {
     "build": "node -e \"const fs=require('fs');const path=require('path');const esbuild=require('esbuild');const root=process.cwd();const dist=path.join(root,'dist');fs.rmSync(dist,{recursive:true,force:true});fs.mkdirSync(dist,{recursive:true});esbuild.buildSync({entryPoints:[path.join(root,'src','index.ts')],outfile:path.join(dist,'index.js'),bundle:true,format:'cjs',platform:'node',target:'es2020',minify:true,external:['siyuan','electron','fs','path','crypto','os']});fs.copyFileSync(path.join(root,'plugin.json'),path.join(dist,'plugin.json'));fs.copyFileSync(path.join(root,'src','README.md'),path.join(dist,'README.md'));fs.copyFileSync(path.join(root,'src','index.css'),path.join(dist,'index.css'));fs.copyFileSync(path.join(root,'src','logo.png'),path.join(dist,'icon.png'));fs.copyFileSync(path.join(root,'src','preview.png'),path.join(dist,'preview.png'));fs.cpSync(path.join(root,'i18n'),path.join(dist,'i18n'),{recursive:true});\"",
