@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.5.0...v1.5.1) (2026-04-11)
+
+
+### Corrections 🐛
+
+* **git:** Badges and actions blocked when git mode active, guards checked hugoProjectPath ([#27](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/27)) ([c84c448](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/c84c4480e60432f4146164c663c2f0055366d244))
+
 ## [1.5.0](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.4.0...v1.5.0) (2026-04-06)
 
 
