@@ -11,6 +11,7 @@ interface SetupPluginSettingsOptions {
   onConfigChange: (config: HugoConfig) => void;
   runOrphanCleanup: () => Promise<void>;
   onPreserveDocTreeChange: (enabled: boolean) => Promise<void>;
+  onSlugModeChange: (mode: HugoConfig["slugMode"]) => Promise<void>;
 }
 
 type FieldMap = Record<string, HTMLInputElement | HTMLSelectElement>;
@@ -251,6 +252,17 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
     }, 500);
   };
 
+  const persistConfigNow = async (): Promise<HugoConfig> => {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    const nextConfig = buildConfigFromFields(fields);
+    options.onConfigChange(nextConfig);
+    await saveConfig(nextConfig);
+    return nextConfig;
+  };
+
   /**
    * Finds the current publish-mode value and applies row visibility.
    * Works whether called from a select-change event or from the dialog observer.
@@ -436,7 +448,16 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
         option.selected = getConfig().slugMode === value;
         select.appendChild(option);
       });
-      select.addEventListener("change", scheduleSave);
+      const previousValue = { current: getConfig().slugMode };
+      const handleSlugModeChange = async () => {
+        const nextMode = select.value as HugoConfig["slugMode"];
+        if (nextMode === previousValue.current) return;
+        previousValue.current = nextMode;
+        await persistConfigNow();
+        await options.onSlugModeChange(nextMode);
+      };
+      select.addEventListener("input", () => { void handleSlugModeChange(); });
+      select.addEventListener("change", () => { void handleSlugModeChange(); });
       fields.slugMode = select;
       return select;
     },
@@ -468,7 +489,7 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
 
   setting.addItem({
     title: "Auto clean orphans",
-    description: "On startup, remove Hugo pages whose SiYuan document no longer exists",
+    description: "On plugin startup (page reload), scan Hugo content and remove published pages whose SiYuan document no longer exists. Documents deleted during an active session are always cleaned up automatically, regardless of this setting.",
     createActionElement: () => createSwitchField(fields, "autoCleanOrphans", getConfig, scheduleSave),
   });
 
@@ -482,10 +503,7 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
         const enabled = checkbox.checked;
         if (enabled === previousValue.current) return;
         previousValue.current = enabled;
-        if (saveTimer) clearTimeout(saveTimer);
-        const nextConfig = buildConfigFromFields(fields);
-        options.onConfigChange(nextConfig);
-        await saveConfig(nextConfig);
+        await persistConfigNow();
         await options.onPreserveDocTreeChange(enabled);
       });
       return checkbox;

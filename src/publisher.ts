@@ -1,7 +1,7 @@
 import type { HugoConfig, SyncStatus } from "./types";
 import type { StorageAdapter } from "./storage-adapter";
 import { exportMdContent, getBlockAttrs, toWorkspacePath } from "./api";
-import { convertDoc, renderMarkdownFile, slugify } from "./converter";
+import { convertDoc, parseIALTags, renderMarkdownFile, slugify } from "./converter";
 import { copyImagesToHugo, validateHugoProject } from "./image-handler";
 import { computeSyncStatus, computeCurrentMetaHash, setSyncEntry, getSyncEntry, removeSyncEntry, reconcileImageRefsForDoc, getMirroredDocIds } from "./sync-state";
 import { hashContent } from "./hash";
@@ -34,6 +34,16 @@ interface PublishedDocRecord {
   hugoPath: string;
   slug: string;
   hash: string;
+}
+
+function normalizeTag(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+export function matchesPublishTagFilter(rawTags: string, publishTag: string): boolean {
+  if (!publishTag.trim()) return true;
+  const expected = normalizeTag(publishTag);
+  return parseIALTags(rawTags).map((tag) => normalizeTag(tag)).includes(expected);
 }
 
 /**
@@ -344,8 +354,7 @@ export async function publishDoc(
   const docName = exported.hPath.split("/").pop() ?? docId;
 
   if (config.publishTag) {
-    const tags = (ial["tags"] ?? "").split(/\s+/).map((t) => t.replace(/^#/, ""));
-    if (!tags.includes(config.publishTag)) {
+    if (!matchesPublishTagFilter(ial["tags"] ?? "", config.publishTag)) {
       return {
         success: false,
         message: `Document sans tag "${config.publishTag}" — publication ignorée`,

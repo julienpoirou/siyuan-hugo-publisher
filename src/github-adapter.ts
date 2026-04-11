@@ -109,6 +109,7 @@ export class GitHubAdapter implements StorageAdapter {
     try {
       const res = await fetch(`${this.endpoint(repoPath)}?ref=${encodeURIComponent(this.branch)}`, {
         headers: this.headers(),
+        cache: "no-store",
       });
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`GET ${repoPath} → HTTP ${res.status}`);
@@ -120,7 +121,7 @@ export class GitHubAdapter implements StorageAdapter {
     }
   }
 
-  private async putContents(repoPath: string, base64Content: string): Promise<void> {
+  private async putContents(repoPath: string, base64Content: string, attempt = 0): Promise<void> {
     const currentSha = await this.getFileSha(repoPath);
     const body: Record<string, unknown> = {
       message: `publish: ${repoPath}`,
@@ -134,6 +135,14 @@ export class GitHubAdapter implements StorageAdapter {
       headers: this.headers(),
       body: JSON.stringify(body),
     });
+
+    if (res.status === 409 && attempt < 3) {
+      // SHA mismatch due to GitHub API eventual consistency — re-fetch and retry
+      log.warn(`GitHub PUT ${repoPath} → 409 SHA mismatch (attempt ${attempt + 1}/3), retrying…`);
+      await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+      return this.putContents(repoPath, base64Content, attempt + 1);
+    }
+
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       throw new Error(`GitHub PUT ${repoPath} → HTTP ${res.status}: ${detail}`);
@@ -227,6 +236,7 @@ export class GitHubAdapter implements StorageAdapter {
     const repoPath = toRepoPath(absolutePath);
     const res = await fetch(`${this.endpoint(repoPath)}?ref=${encodeURIComponent(this.branch)}`, {
       headers: this.headers(),
+      cache: "no-store",
     });
     if (!res.ok) throw new Error(`GitHub GET ${repoPath} → HTTP ${res.status}`);
     const json = await res.json() as { content?: string; encoding?: string };
@@ -248,6 +258,7 @@ export class GitHubAdapter implements StorageAdapter {
     const repoPath = toRepoPath(absolutePath);
     const res = await fetch(`${this.endpoint(repoPath)}?ref=${encodeURIComponent(this.branch)}`, {
       headers: this.headers(),
+      cache: "no-store",
     });
     if (res.status === 404) return [];
     if (!res.ok) return [];

@@ -9,6 +9,7 @@ export interface EventBindings {
   refreshDocStatus: (docId: string, protyleEl?: HTMLElement) => Promise<void>;
   scheduleMissingDocReconcile: () => void;
   scheduleRefresh: (docId: string, protyleEl?: HTMLElement) => void;
+  scheduleRefreshIfIdle: (docId: string, protyleEl?: HTMLElement) => void;
   deleteStatus: (docId: string) => void;
   clearRefreshTimer: (docId: string) => void;
 }
@@ -47,7 +48,11 @@ export function bindPluginEvents(
     if (cmd === "transactions") bindings.scheduleMissingDocReconcile();
     const activeDocId = bindings.getActiveDocId();
     if (activeDocId) {
-      bindings.scheduleRefresh(activeDocId, bindings.getActiveProtyleEl());
+      if (cmd === "setBlockAttrs") {
+        bindings.scheduleRefreshIfIdle(activeDocId, bindings.getActiveProtyleEl());
+      } else {
+        bindings.scheduleRefresh(activeDocId, bindings.getActiveProtyleEl());
+      }
     }
   });
 

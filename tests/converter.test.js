@@ -9,6 +9,7 @@ const {
   cleanSiYuanMarkdown,
   convertDoc,
   normalizeTitleImageForHash,
+  parseIALTags,
   renderMarkdownFile,
   resolveIcon,
 } = require("../.test-build/src/converter.js");
@@ -77,6 +78,12 @@ async function testDocumentConversion() {
   const rendered = renderMarkdownFile(result);
   assert.match(rendered, /^---[\s\S]*slug: "mon-article"/);
   assert.match(rendered, /cover: "\/images\/banner\.png"/);
+}
+
+function testParseIALTags() {
+  assert.deepEqual(parseIALTags("#tech #notes"), ["tech", "notes"]);
+  assert.deepEqual(parseIALTags("#tech#notes#test#"), ["tech", "notes", "test"]);
+  assert.deepEqual(parseIALTags("tech,notes;test"), ["tech", "notes", "test"]);
 }
 
 /**
@@ -269,6 +276,7 @@ test("cleanSiYuanMarkdown removes IAL, front matter and internal block links", t
 test("resolveIcon supports raw unicode and hex codepoints", testIconResolution);
 
 test("convertDoc rewrites images and emits expected front matter fields", testDocumentConversion);
+test("parseIALTags supports compact and delimited multi-tag formats", testParseIALTags);
 
 test("convertDoc keeps external cover URLs and CSS cover styles", testCoverPreservation);
 
