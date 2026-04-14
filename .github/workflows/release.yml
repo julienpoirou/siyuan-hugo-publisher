@@ -28,6 +28,6 @@ jobs:
         run: cd dist && zip -r ../siyuan-hugo-publisher.zip .
 
       - name: Attach to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: siyuan-hugo-publisher.zip
