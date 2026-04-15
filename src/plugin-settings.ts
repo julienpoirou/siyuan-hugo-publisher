@@ -405,8 +405,8 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
     fsOnlyRows.forEach(row => { row.classList.toggle("shp-row--hidden", isGit); });
     gitOnlyRows.forEach(row => { row.classList.toggle("shp-row--hidden", !isGit); });
     // Remove bottom border from the last visible row of each mode
-    const lastGit = gitOnlyRows.at(-1);
-    const lastFs  = fsOnlyRows.at(-1);
+    const lastGit = gitOnlyRows[gitOnlyRows.length - 1];
+    const lastFs  = fsOnlyRows[fsOnlyRows.length - 1];
     if (lastGit) lastGit.classList.toggle("shp-row--no-border", isGit);
     if (lastFs)  lastFs.classList.toggle("shp-row--no-border", !isGit);
   };
