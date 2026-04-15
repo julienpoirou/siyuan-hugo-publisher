@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.5.1...v1.6.0) (2026-04-15)
+
+
+### Features ✨
+
+* **settings:** Redesign panel layout and add confirmation modals ([#32](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/32)) ([4f09c0c](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/4f09c0cf94acb2a5eaa54802d5708083de60fa28))
+
 ## [1.5.1](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.5.0...v1.5.1) (2026-04-11)
 
 
