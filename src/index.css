@@ -1,5 +1,9 @@
 /* Intentionally minimal: SiYuan Bazaar packages are expected to include index.css. */
 
+/* ---------------------------------------------------------------------------
+   Path field (Browse + Test buttons)
+--------------------------------------------------------------------------- */
+
 .shp-path-field {
   gap: 8px;
   align-items: center;
@@ -17,4 +21,174 @@
 .shp-path-field__input {
   width: 100%;
   box-sizing: border-box;
+}
+
+/* ---------------------------------------------------------------------------
+   Settings sidebar — scoped under .shp-settings-sidebar
+--------------------------------------------------------------------------- */
+
+/* Nav: match dialog header background, size to content */
+.shp-settings-sidebar .b3-tab-bar.b3-list.b3-list--background {
+  background-color: var(--b3-theme-surface);
+  width: max-content;
+  min-width: max-content;
+  flex-shrink: 0;
+}
+
+/* Nav items vertical padding + horizontal padding */
+.shp-settings-sidebar .b3-list-item {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+/* Top margin on first nav item = horizontal padding */
+.shp-settings-sidebar .b3-list-item:first-child {
+  margin-top: 9px;
+}
+
+/* Content pane */
+.shp-settings-sidebar .config__tab-wrap {
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Remove the top border that appears at the top-right corner */
+  border-top: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Section show/hide
+--------------------------------------------------------------------------- */
+
+.shp-settings__section {
+  display: none;
+}
+
+.shp-settings__section--active {
+  display: block;
+  padding: 4px 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Setting rows — horizontal: [title + desc left] [action right]
+--------------------------------------------------------------------------- */
+
+.shp-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px !important;
+  border-bottom: 1px solid var(--b3-border-color);
+  box-sizing: border-box;
+}
+
+.shp-row:last-child {
+  border-bottom: none;
+}
+
+.shp-row--hidden {
+  display: none !important;
+}
+
+.shp-row--no-border {
+  border-bottom: none !important;
+}
+
+/* Left: title + description stacked */
+.shp-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.shp-row__title {
+  font-size: var(--b3-font-size);
+  color: var(--b3-theme-on-background);
+  line-height: 1.4;
+}
+
+.shp-row__desc {
+  line-height: 1.4;
+  margin: 0;
+}
+
+/* Right: wrapper div — fixed width, content right-aligned */
+.shp-row__action {
+  flex-shrink: 0;
+  width: 220px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  box-sizing: border-box;
+  gap: 6px;
+}
+
+/* Inputs and selects fill the action wrapper */
+.shp-row__action .b3-text-field,
+.shp-row__action .b3-select {
+  width: 100%;
+  box-sizing: border-box;
+  flex: 1;
+}
+
+/* Path field wrapper fills the action area */
+.shp-row__action .shp-path-field {
+  flex: 1;
+  width: 100%;
+}
+
+/* Switches keep their native dimensions — never override width/height */
+.shp-row__action .b3-switch {
+  flex-shrink: 0;
+}
+
+.shp-row__action .b3-button {
+  flex-shrink: 0;
+  width: auto !important;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   Confirmation modal
+--------------------------------------------------------------------------- */
+
+.shp-confirm-overlay {
+  z-index: 210;
+}
+
+.shp-confirm-container {
+  max-width: 460px;
+  width: 90%;
+  overflow: hidden;
+}
+
+.shp-confirm-container .b3-dialog__header {
+  background-color: var(--b3-theme-surface);
+}
+
+.shp-confirm-body {
+  padding: 16px 24px !important;
+  background-color: var(--b3-theme-background);
+}
+
+.shp-confirm-msg {
+  margin: 0;
+  line-height: 1.6;
+  color: var(--b3-theme-on-background);
+}
+
+.shp-confirm-container .b3-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  background-color: var(--b3-theme-background);
+}
+
+.shp-confirm-container .b3-dialog__footer .b3-button {
+  border: 1px solid var(--b3-border-color);
 }
