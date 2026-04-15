@@ -16,8 +16,9 @@ interface SetupPluginSettingsOptions {
 
 type FieldMap = Record<string, HTMLInputElement | HTMLSelectElement>;
 
-const FS_ONLY_TITLES = new Set(["Hugo project path", "Content directory", "Images directory"]);
-const GIT_ONLY_TITLES = new Set(["Git repository URL", "Git branch", "Git token"]);
+// ---------------------------------------------------------------------------
+// Field creation helpers
+// ---------------------------------------------------------------------------
 
 function getConfigValue(config: HugoConfig, key: string): unknown {
   return (config as unknown as Record<string, unknown>)[key];
@@ -75,9 +76,6 @@ function createSwitchField(
 
 /**
  * Creates a relative-directory field (text input + Browse + Test).
- * Browse opens the path explorer rooted at hugoProjectPath and converts the
- * selected absolute path back to a relative one.
- * Test verifies the resolved directory exists via the storage adapter.
  */
 function createRelativeDirField(
   fields: FieldMap,
@@ -159,25 +157,165 @@ function buildConfigFromFields(fields: FieldMap): HugoConfig {
   };
 }
 
-/**
- * Hides/shows rows inside a setting dialog based on publish mode.
- * We read the title from the first non-empty direct text node of .fn__flex-1.
- */
-function applyModeVisibilityToContainer(container: HTMLElement, isGit: boolean): void {
-  container.querySelectorAll<HTMLElement>(".b3-label").forEach((row) => {
-    const flex1 = row.querySelector<HTMLElement>(".fn__flex-1");
-    const titleText = Array.from(flex1?.childNodes ?? [])
-      .filter((n): n is Text => n.nodeType === Node.TEXT_NODE)
-      .map((n) => n.textContent?.trim() ?? "")
-      .find((t) => t.length > 0) ?? "";
+// ---------------------------------------------------------------------------
+// Sidebar DOM builders
+// ---------------------------------------------------------------------------
 
-    if (FS_ONLY_TITLES.has(titleText)) {
-      row.style.display = isGit ? "none" : "";
-    } else if (GIT_ONLY_TITLES.has(titleText)) {
-      row.style.display = isGit ? "" : "none";
-    }
+/**
+ * Creates a settings row: [title + description stacked left] [action right].
+ */
+function buildRow(title: string, description: string, actionEl: HTMLElement): HTMLElement {
+  const label = document.createElement("label");
+  label.className = "b3-label shp-row";
+
+  const textGroup = document.createElement("div");
+  textGroup.className = "shp-row__text";
+
+  const titleEl = document.createElement("div");
+  titleEl.className = "shp-row__title";
+  titleEl.textContent = title;
+  textGroup.appendChild(titleEl);
+
+  if (description) {
+    const descEl = document.createElement("div");
+    descEl.className = "b3-label__text shp-row__desc";
+    descEl.textContent = description;
+    textGroup.appendChild(descEl);
+  }
+
+  label.appendChild(textGroup);
+
+  const actionWrapper = document.createElement("div");
+  actionWrapper.className = "shp-row__action";
+  actionWrapper.appendChild(actionEl);
+  label.appendChild(actionWrapper);
+
+  return label;
+}
+
+/**
+ * Wraps rows into a named section panel.
+ */
+function buildSection(rows: HTMLElement[]): HTMLElement {
+  const section = document.createElement("div");
+  section.className = "shp-settings__section";
+  for (const row of rows) section.appendChild(row);
+  return section;
+}
+
+/**
+ * Assembles the full sidebar layout using SiYuan's native tab-bar pattern.
+ * Matches the look of built-in SiYuan settings dialogs.
+ * First section is shown by default.
+ */
+function buildSidebarLayout(
+  sections: { id: string; label: string; el: HTMLElement }[]
+): HTMLElement {
+  const wrapper = document.createElement("div");
+  wrapper.className = "fn__flex fn__flex-1 shp-settings-sidebar";
+
+  // Left nav — native SiYuan tab bar
+  const nav = document.createElement("ul");
+  nav.className = "b3-tab-bar b3-list b3-list--background";
+
+  // Right content pane
+  const content = document.createElement("div");
+  content.className = "config__tab-wrap";
+
+  sections.forEach(({ id, label, el }, i) => {
+    const li = document.createElement("li");
+    li.className = "b3-list-item";
+    if (i === 0) li.classList.add("b3-list-item--focus");
+    li.dataset.section = id;
+
+    const span = document.createElement("span");
+    span.className = "b3-list-item__text";
+    span.textContent = label;
+    li.appendChild(span);
+
+    li.addEventListener("click", () => {
+      nav.querySelectorAll<HTMLElement>(".b3-list-item")
+        .forEach(b => b.classList.remove("b3-list-item--focus"));
+      li.classList.add("b3-list-item--focus");
+      content.querySelectorAll<HTMLElement>(".shp-settings__section")
+        .forEach(s => s.classList.remove("shp-settings__section--active"));
+      el.classList.add("shp-settings__section--active");
+    });
+
+    nav.appendChild(li);
+    if (i === 0) el.classList.add("shp-settings__section--active");
+    content.appendChild(el);
+  });
+
+  wrapper.appendChild(nav);
+  wrapper.appendChild(content);
+  return wrapper;
+}
+
+// ---------------------------------------------------------------------------
+// Confirmation modal
+// ---------------------------------------------------------------------------
+
+/**
+ * Shows a SiYuan-styled confirmation modal and returns true if the user
+ * clicks Confirm, false if they click Cancel or dismiss the overlay.
+ */
+function showConfirmModal(title: string, message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "b3-dialog b3-dialog--open shp-confirm-overlay";
+
+    const container = document.createElement("div");
+    container.className = "b3-dialog__container shp-confirm-container";
+
+    const header = document.createElement("div");
+    header.className = "b3-dialog__header";
+    const titleEl = document.createElement("div");
+    titleEl.className = "fn__flex-1";
+    titleEl.textContent = title;
+    header.appendChild(titleEl);
+
+    const body = document.createElement("div");
+    body.className = "b3-dialog__body shp-confirm-body";
+    const msgEl = document.createElement("p");
+    msgEl.className = "shp-confirm-msg";
+    msgEl.textContent = message;
+    body.appendChild(msgEl);
+
+    const footer = document.createElement("div");
+    footer.className = "b3-dialog__footer";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "b3-button b3-button--cancel";
+    cancelBtn.textContent = "Cancel";
+
+    const confirmBtn = document.createElement("button");
+    confirmBtn.className = "b3-button b3-button--text";
+    confirmBtn.textContent = "Confirm";
+
+    footer.appendChild(cancelBtn);
+    footer.appendChild(confirmBtn);
+
+    container.appendChild(header);
+    container.appendChild(body);
+    container.appendChild(footer);
+    overlay.appendChild(container);
+    document.body.appendChild(overlay);
+
+    const cleanup = (result: boolean) => {
+      document.body.removeChild(overlay);
+      resolve(result);
+    };
+
+    cancelBtn.addEventListener("click", () => cleanup(false));
+    confirmBtn.addEventListener("click", () => cleanup(true));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(false); });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Dialog observer (title rename + footer hide)
+// ---------------------------------------------------------------------------
 
 /**
  * Installs a MutationObserver that fires when the plugin Settings dialog opens.
@@ -204,14 +342,6 @@ function installSettingsDialogObserver(onOpen: (dialog: HTMLElement) => void): v
             }
           }
 
-          for (const selector of [".b3-dialog__body", ".config__panel", ".b3-dialog__container"]) {
-            const element = dialog.querySelector<HTMLElement>(selector);
-            if (element) {
-              element.style.background = "var(--b3-theme-background)";
-              break;
-            }
-          }
-
           for (const selector of [".b3-dialog__action", ".b3-dialog__footer", ".b3-dialog__btns"]) {
             const footer = dialog.querySelector<HTMLElement>(selector);
             if (footer) {
@@ -226,7 +356,6 @@ function installSettingsDialogObserver(onOpen: (dialog: HTMLElement) => void): v
             }
           });
 
-          // Notify caller so it can apply initial row visibility
           onOpen(dialog);
         }
       }
@@ -235,6 +364,10 @@ function installSettingsDialogObserver(onOpen: (dialog: HTMLElement) => void): v
 
   dialogObserver.observe(document.body, { childList: true, subtree: true });
 }
+
+// ---------------------------------------------------------------------------
+// Main export
+// ---------------------------------------------------------------------------
 
 export function setupPluginSettings(options: SetupPluginSettingsOptions): Setting {
   const fields: FieldMap = {};
@@ -263,269 +396,356 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
     return nextConfig;
   };
 
-  /**
-   * Finds the current publish-mode value and applies row visibility.
-   * Works whether called from a select-change event or from the dialog observer.
-   */
-  const applyModeVisibility = (container?: HTMLElement) => {
+  // Rows that depend on publish mode — kept as references for visibility toggling
+  let fsOnlyRows: HTMLElement[] = [];
+  let gitOnlyRows: HTMLElement[] = [];
+
+  const applyModeVisibility = () => {
     const isGit = (fields.publishMode as HTMLSelectElement | undefined)?.value === "git";
-    const target =
-      container ??
-      (fields.publishMode as HTMLElement | undefined)?.closest<HTMLElement>(".b3-dialog") ??
-      (fields.publishMode as HTMLElement | undefined)?.closest<HTMLElement>(".config__panel");
-    if (target) applyModeVisibilityToContainer(target, isGit);
+    fsOnlyRows.forEach(row => { row.classList.toggle("shp-row--hidden", isGit); });
+    gitOnlyRows.forEach(row => { row.classList.toggle("shp-row--hidden", !isGit); });
+    // Remove bottom border from the last visible row of each mode
+    const lastGit = gitOnlyRows.at(-1);
+    const lastFs  = fsOnlyRows.at(-1);
+    if (lastGit) lastGit.classList.toggle("shp-row--no-border", isGit);
+    if (lastFs)  lastFs.classList.toggle("shp-row--no-border", !isGit);
   };
 
-  installSettingsDialogObserver((dialog) => {
-    // Dialog is now in the DOM — apply initial visibility
-    applyModeVisibility(dialog);
+  // -------------------------------------------------------------------------
+  // Section: Publishing
+  // -------------------------------------------------------------------------
+
+  const publishModeSelect = document.createElement("select");
+  publishModeSelect.className = "b3-select fn__flex-1";
+  [
+    { value: "filesystem", label: "Filesystem (shared volume)" },
+    { value: "git", label: "Git (GitHub repository)" },
+  ].forEach(({ value, label }) => {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    opt.selected = getConfig().publishMode === value;
+    publishModeSelect.appendChild(opt);
   });
+  publishModeSelect.addEventListener("change", () => { scheduleSave(); applyModeVisibility(); });
+  fields.publishMode = publishModeSelect;
+
+  const rowPublishMode = buildRow(
+    "Publish mode",
+    "Filesystem: write via SiYuan shared volume. Git: push directly to a GitHub repository.",
+    publishModeSelect
+  );
+
+  // Git-only rows
+  const rowGitUrl = buildRow(
+    "Git repository URL",
+    "GitHub HTTPS URL (e.g. https://github.com/owner/repo.git)",
+    createTextField(fields, "gitRepoUrl", getConfig, scheduleSave, "https://github.com/owner/repo.git") as HTMLElement
+  );
+
+  const rowGitBranch = buildRow(
+    "Git branch",
+    "Target branch for published content (default: main)",
+    createTextField(fields, "gitBranch", getConfig, scheduleSave, "main") as HTMLElement
+  );
+
+  const tokenWrap = document.createElement("div");
+  tokenWrap.className = "fn__flex fn__flex-1";
+  tokenWrap.style.gap = "8px";
+  const tokenInput = document.createElement("input");
+  tokenInput.type = "password";
+  tokenInput.className = "b3-text-field fn__flex-1";
+  tokenInput.value = String(getConfig().gitToken ?? "");
+  tokenInput.placeholder = "ghp_xxxxxxxxxxxxxxxxxxxx";
+  tokenInput.addEventListener("change", scheduleSave);
+  fields.gitToken = tokenInput;
+  const tokenTestBtn = document.createElement("button");
+  tokenTestBtn.className = "b3-button b3-button--outline";
+  tokenTestBtn.textContent = "Test";
+  tokenTestBtn.style.whiteSpace = "nowrap";
+  tokenTestBtn.addEventListener("click", async () => {
+    tokenTestBtn.disabled = true;
+    tokenTestBtn.textContent = "…";
+    const testConfig = buildConfigFromFields(fields);
+    const result = await validateHugoProject(testConfig, createStorageAdapter(testConfig));
+    tokenTestBtn.textContent = result.valid ? "OK" : "KO";
+    tokenTestBtn.title = result.valid ? "" : (result.error ?? "");
+    setTimeout(() => { tokenTestBtn.textContent = "Test"; tokenTestBtn.disabled = false; }, 2500);
+  });
+  tokenWrap.appendChild(tokenInput);
+  tokenWrap.appendChild(tokenTestBtn);
+  const rowGitToken = buildRow(
+    "Git token",
+    "GitHub Personal Access Token with repo write access",
+    tokenWrap
+  );
+
+  // Filesystem-only rows
+  const hugoPathWrap = document.createElement("div");
+  hugoPathWrap.className = "shp-path-field fn__flex fn__flex-1";
+  const hugoPathInput = createTextField(fields, "hugoProjectPath", getConfig, scheduleSave, "/data/hugo-site");
+  hugoPathInput.classList.add("shp-path-field__input");
+  const hugoPathInputWrap = document.createElement("div");
+  hugoPathInputWrap.className = "shp-path-field__input-wrap";
+  hugoPathInputWrap.appendChild(hugoPathInput);
+  const hugoBrowseBtn = document.createElement("button");
+  hugoBrowseBtn.className = "b3-button b3-button--outline";
+  hugoBrowseBtn.textContent = "Browse";
+  hugoBrowseBtn.style.whiteSpace = "nowrap";
+  hugoBrowseBtn.addEventListener("click", () => {
+    openPathExplorer(hugoPathInput.value.trim(), (selectedPath) => {
+      hugoPathInput.value = selectedPath;
+      hugoPathInput.dispatchEvent(new Event("change"));
+    });
+  });
+  const hugoTestBtn = document.createElement("button");
+  hugoTestBtn.className = "b3-button b3-button--outline";
+  hugoTestBtn.textContent = "Test";
+  hugoTestBtn.style.whiteSpace = "nowrap";
+  hugoTestBtn.addEventListener("click", async () => {
+    hugoTestBtn.disabled = true;
+    hugoTestBtn.textContent = "…";
+    const testConfig = { ...getConfig(), hugoProjectPath: hugoPathInput.value.trim() };
+    const result = await validateHugoProject(testConfig, createStorageAdapter(testConfig));
+    hugoTestBtn.textContent = result.valid ? "OK" : "KO";
+    hugoTestBtn.title = result.valid ? "" : (result.error ?? "");
+    setTimeout(() => { hugoTestBtn.textContent = "Test"; hugoTestBtn.disabled = false; }, 2500);
+  });
+  hugoPathWrap.appendChild(hugoPathInputWrap);
+  hugoPathWrap.appendChild(hugoBrowseBtn);
+  hugoPathWrap.appendChild(hugoTestBtn);
+  const rowHugoPath = buildRow(
+    "Hugo project path",
+    "Ex: /data/hugo-site or /siyuan/workspace/data/hugo-site",
+    hugoPathWrap
+  );
+
+  const rowContentDir = buildRow(
+    "Content directory",
+    "Relative path from Hugo root",
+    createRelativeDirField(fields, "contentDir", getConfig, scheduleSave, "content/posts")
+  );
+
+  const rowImagesDir = buildRow(
+    "Images directory",
+    "Relative path inside /static/",
+    createRelativeDirField(fields, "staticDir", getConfig, scheduleSave, "static/images")
+  );
+
+  gitOnlyRows = [rowGitUrl, rowGitBranch, rowGitToken];
+  fsOnlyRows = [rowHugoPath, rowContentDir, rowImagesDir];
+
+  const sectionPublishing = buildSection([
+    rowPublishMode,
+    rowGitUrl,
+    rowGitBranch,
+    rowGitToken,
+    rowHugoPath,
+    rowContentDir,
+    rowImagesDir,
+  ]);
+
+  // -------------------------------------------------------------------------
+  // Section: Content Rules
+  // -------------------------------------------------------------------------
+
+  const slugSelect = document.createElement("select");
+  slugSelect.className = "b3-select fn__flex-1";
+  [
+    { value: "title", label: "Title (recommended)" },
+    { value: "id", label: "SiYuan ID" },
+  ].forEach(({ value, label }) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    option.selected = getConfig().slugMode === value;
+    slugSelect.appendChild(option);
+  });
+  const previousSlug = { current: getConfig().slugMode };
+  const handleSlugModeChange = async () => {
+    const nextMode = slugSelect.value as HugoConfig["slugMode"];
+    if (nextMode === previousSlug.current) return;
+
+    const message = nextMode === "id"
+      ? "Switching to SiYuan ID will rename all already-published files using document IDs as filenames. Hugo permalinks will change and may break existing links."
+      : "Switching to Title will rename all already-published files using document titles as filenames. Hugo permalinks will change and may break existing links.";
+    const confirmed = await showConfirmModal("Change slug mode?", message);
+    if (!confirmed) {
+      slugSelect.value = previousSlug.current;
+      return;
+    }
+
+    previousSlug.current = nextMode;
+    await persistConfigNow();
+    await options.onSlugModeChange(nextMode);
+  };
+  slugSelect.addEventListener("change", () => { void handleSlugModeChange(); });
+  fields.slugMode = slugSelect;
+
+  const preserveCheckbox = createSwitchField(fields, "preserveDocTree", getConfig, scheduleSave);
+  const previousPreserve = { current: getConfig().preserveDocTree };
+  preserveCheckbox.addEventListener("change", async () => {
+    const enabled = preserveCheckbox.checked;
+    if (enabled === previousPreserve.current) return;
+
+    const message = enabled
+      ? "Enabling Mirror doc tree will reorganize all published notes into subdirectories matching your SiYuan notebook hierarchy. Existing Hugo permalinks will change."
+      : "Disabling Mirror doc tree will move all published notes to a flat content directory. Existing Hugo permalinks will change.";
+    const confirmed = await showConfirmModal("Change doc tree structure?", message);
+    if (!confirmed) {
+      preserveCheckbox.checked = previousPreserve.current;
+      return;
+    }
+
+    previousPreserve.current = enabled;
+    await persistConfigNow();
+    await options.onPreserveDocTreeChange(enabled);
+  });
+
+  const sectionContentRules = buildSection([
+    buildRow(
+      "Tag filter",
+      "Only publish docs with this tag (empty = all)",
+      createTextField(fields, "publishTag", getConfig, scheduleSave, "publish") as HTMLElement
+    ),
+    buildRow("Slug mode", "Filename used for published Hugo pages (Title or SiYuan ID). Changing this renames all published files.", slugSelect),
+    buildRow(
+      "Hugo language",
+      "Language prefix for multi-lang (e.g. \"fr\" → content/fr/posts/). Empty = disabled",
+      createTextField(fields, "language", getConfig, scheduleSave, "fr") as HTMLElement
+    ),
+    buildRow(
+      "Publish as draft",
+      "Sets draft: true in front matter",
+      createSwitchField(fields, "defaultDraft", getConfig, scheduleSave) as HTMLElement
+    ),
+    buildRow(
+      "Mirror doc tree structure",
+      "Replicate SiYuan folder hierarchy in Hugo content directory. Toggling reorganizes existing published notes.",
+      preserveCheckbox as HTMLElement
+    ),
+  ]);
+
+  // -------------------------------------------------------------------------
+  // Section: Sync
+  // -------------------------------------------------------------------------
+
+  const sectionSync = buildSection([
+    buildRow(
+      "Auto sync on save",
+      "Automatically re-publish when the document is saved",
+      createSwitchField(fields, "autoSyncOnSave", getConfig, scheduleSave) as HTMLElement
+    ),
+    buildRow(
+      "Badge refresh delay",
+      "Debounce delay in ms for Sync/Modified detection",
+      createNumberField(fields, "badgeRefreshDelayMs", getConfig, scheduleSave, 100, "400") as HTMLElement
+    ),
+  ]);
+
+  // -------------------------------------------------------------------------
+  // Section: Cleanup
+  // -------------------------------------------------------------------------
+
+  const cleanNowBtn = document.createElement("button");
+  cleanNowBtn.className = "b3-button b3-button--outline";
+  cleanNowBtn.textContent = "Run now";
+  cleanNowBtn.addEventListener("click", async () => {
+    const confirmed = await showConfirmModal(
+      "Clean orphans now?",
+      "This will permanently delete all Hugo content files with no matching SiYuan document. This action cannot be undone."
+    );
+    if (!confirmed) return;
+    cleanNowBtn.disabled = true;
+    cleanNowBtn.textContent = "Running…";
+    await options.runOrphanCleanup();
+    cleanNowBtn.textContent = "Run now";
+    cleanNowBtn.disabled = false;
+  });
+
+  const autoCleanCheckbox = document.createElement("input");
+  autoCleanCheckbox.type = "checkbox";
+  autoCleanCheckbox.className = "b3-switch fn__flex-center";
+  autoCleanCheckbox.checked = Boolean(getConfig().autoCleanOrphans);
+  fields.autoCleanOrphans = autoCleanCheckbox;
+  autoCleanCheckbox.addEventListener("change", async () => {
+    const enabled = autoCleanCheckbox.checked;
+    if (enabled) {
+      const confirmed = await showConfirmModal(
+        "Enable auto clean orphans?",
+        "On each plugin startup, Hugo content files with no matching SiYuan document will be permanently deleted. This cannot be undone."
+      );
+      if (!confirmed) {
+        autoCleanCheckbox.checked = false;
+        return;
+      }
+    }
+    scheduleSave();
+  });
+
+  const sectionCleanup = buildSection([
+    buildRow(
+      "Auto clean orphans",
+      "On plugin startup (page reload), scan Hugo content and remove published pages whose SiYuan document no longer exists. Documents deleted during an active session are always cleaned up automatically, regardless of this setting.",
+      autoCleanCheckbox as HTMLElement
+    ),
+    buildRow(
+      "Clean orphans now",
+      "Scan Hugo content directory and remove pages with no matching SiYuan document",
+      cleanNowBtn
+    ),
+  ]);
+
+  // -------------------------------------------------------------------------
+  // Assemble sidebar and wire up dialog injection
+  // -------------------------------------------------------------------------
 
   const setting = new Setting({});
 
-  // ---------------------------------------------------------------------------
-  // 1. Publish mode  (always visible — drives show/hide of groups below)
-  // ---------------------------------------------------------------------------
-
+  // SiYuan only creates the dialog DOM when at least one item exists.
+  // Add a bootstrap placeholder that the observer will remove on open.
   setting.addItem({
-    title: "Publish mode",
-    description: "Filesystem: write via SiYuan shared volume. Git: push directly to a GitHub repository.",
-    createActionElement: () => {
-      const select = document.createElement("select");
-      select.className = "b3-select fn__flex-1";
-      [
-        { value: "filesystem", label: "Filesystem (shared volume)" },
-        { value: "git", label: "Git (GitHub repository)" },
-      ].forEach(({ value, label }) => {
-        const opt = document.createElement("option");
-        opt.value = value;
-        opt.textContent = label;
-        opt.selected = getConfig().publishMode === value;
-        select.appendChild(opt);
-      });
-      select.addEventListener("change", () => { scheduleSave(); applyModeVisibility(); });
-      fields.publishMode = select;
-      return select;
-    },
+    title: "",
+    createActionElement: () => document.createElement("span"),
   });
 
-  // ---------------------------------------------------------------------------
-  // 2. Filesystem-only fields
-  // ---------------------------------------------------------------------------
+  const sidebar = buildSidebarLayout([
+    { id: "publishing",    label: "Publishing",    el: sectionPublishing },
+    { id: "content-rules", label: "Content Rules", el: sectionContentRules },
+    { id: "sync",          label: "Sync",          el: sectionSync },
+    { id: "cleanup",       label: "Cleanup",       el: sectionCleanup },
+  ]);
 
-  setting.addItem({
-    title: "Hugo project path",
-    description: "Ex: /data/hugo-site or /siyuan/workspace/data/hugo-site",
-    createActionElement: () => {
-      const wrap = document.createElement("div");
-      wrap.className = "shp-path-field fn__flex fn__flex-1";
+  installSettingsDialogObserver((dialog) => {
+    // Find the content area SiYuan created for the dialog items.
+    // .config__panel is present in some SiYuan versions; .b3-dialog__body in others.
+    const contentArea =
+      dialog.querySelector<HTMLElement>(".config__panel") ??
+      dialog.querySelector<HTMLElement>(".b3-dialog__body");
 
-      const input = createTextField(fields, "hugoProjectPath", getConfig, scheduleSave, "/data/hugo-site");
-      input.classList.add("shp-path-field__input");
+    if (!contentArea || contentArea.querySelector(".config__tab-wrap")) return;
 
-      const inputWrap = document.createElement("div");
-      inputWrap.className = "shp-path-field__input-wrap";
-      inputWrap.appendChild(input);
+    // Clear ALL children (including the empty setting.element wrapper div
+    // that stays after we remove the placeholder .b3-label — it would otherwise
+    // appear as an empty flex sibling of the sidebar and create a gap).
+    while (contentArea.firstChild) contentArea.removeChild(contentArea.firstChild);
 
-      const browseBtn = document.createElement("button");
-      browseBtn.className = "b3-button b3-button--outline";
-      browseBtn.textContent = "Browse";
-      browseBtn.style.whiteSpace = "nowrap";
-      browseBtn.addEventListener("click", () => {
-        openPathExplorer(input.value.trim(), (selectedPath) => {
-          input.value = selectedPath;
-          input.dispatchEvent(new Event("change"));
-        });
-      });
+    // Turn the content area into a flex row, matching SiYuan's native tab-panel layout.
+    contentArea.style.padding = "0";
+    contentArea.style.overflow = "hidden";
+    contentArea.style.display = "flex";
 
-      const testBtn = document.createElement("button");
-      testBtn.className = "b3-button b3-button--outline";
-      testBtn.textContent = "Test";
-      testBtn.style.whiteSpace = "nowrap";
-      testBtn.addEventListener("click", async () => {
-        testBtn.disabled = true;
-        testBtn.textContent = "…";
-        const testConfig = { ...getConfig(), hugoProjectPath: input.value.trim() };
-        const result = await validateHugoProject(testConfig, createStorageAdapter(testConfig));
-        testBtn.textContent = result.valid ? "OK" : "KO";
-        testBtn.title = result.valid ? "" : (result.error ?? "");
-        setTimeout(() => { testBtn.textContent = "Test"; testBtn.disabled = false; }, 2500);
-      });
+    // The border-radius lives on .b3-dialog__container (the card), not on
+    // .b3-dialog itself (which is the backdrop/overlay and has no radius).
+    // We apply the radius + overflow:hidden on contentArea so it clips
+    // everything inside (nav included) without touching the nav's own box.
+    const cardEl = dialog.querySelector<HTMLElement>(".b3-dialog__container") ?? dialog;
+    const computed = window.getComputedStyle(cardEl);
+    contentArea.style.borderBottomLeftRadius  = computed.borderBottomLeftRadius;
+    contentArea.style.borderBottomRightRadius = computed.borderBottomRightRadius;
 
-      wrap.appendChild(inputWrap);
-      wrap.appendChild(browseBtn);
-      wrap.appendChild(testBtn);
-      return wrap;
-    },
-  });
-
-  setting.addItem({
-    title: "Content directory",
-    description: "Relative path from Hugo root",
-    createActionElement: () => createRelativeDirField(fields, "contentDir", getConfig, scheduleSave, "content/posts"),
-  });
-
-  setting.addItem({
-    title: "Images directory",
-    description: "Relative path inside /static/",
-    createActionElement: () => createRelativeDirField(fields, "staticDir", getConfig, scheduleSave, "static/images"),
-  });
-
-  // ---------------------------------------------------------------------------
-  // 3. Git-only fields
-  // ---------------------------------------------------------------------------
-
-  setting.addItem({
-    title: "Git repository URL",
-    description: "GitHub HTTPS URL (e.g. https://github.com/owner/repo.git)",
-    createActionElement: () => createTextField(fields, "gitRepoUrl", getConfig, scheduleSave, "https://github.com/owner/repo.git"),
-  });
-
-  setting.addItem({
-    title: "Git branch",
-    description: "Target branch for published content (default: main)",
-    createActionElement: () => createTextField(fields, "gitBranch", getConfig, scheduleSave, "main"),
-  });
-
-  setting.addItem({
-    title: "Git token",
-    description: "GitHub Personal Access Token with repo write access",
-    createActionElement: () => {
-      const wrap = document.createElement("div");
-      wrap.className = "fn__flex fn__flex-1";
-      wrap.style.gap = "8px";
-
-      const tokenInput = document.createElement("input");
-      tokenInput.type = "password";
-      tokenInput.className = "b3-text-field fn__flex-1";
-      tokenInput.value = String(getConfig().gitToken ?? "");
-      tokenInput.placeholder = "ghp_xxxxxxxxxxxxxxxxxxxx";
-      tokenInput.addEventListener("change", scheduleSave);
-      fields.gitToken = tokenInput;
-
-      const testBtn = document.createElement("button");
-      testBtn.className = "b3-button b3-button--outline";
-      testBtn.textContent = "Test";
-      testBtn.style.whiteSpace = "nowrap";
-      testBtn.addEventListener("click", async () => {
-        testBtn.disabled = true;
-        testBtn.textContent = "…";
-        const testConfig = buildConfigFromFields(fields);
-        const result = await validateHugoProject(testConfig, createStorageAdapter(testConfig));
-        testBtn.textContent = result.valid ? "OK" : "KO";
-        testBtn.title = result.valid ? "" : (result.error ?? "");
-        setTimeout(() => { testBtn.textContent = "Test"; testBtn.disabled = false; }, 2500);
-      });
-
-      wrap.appendChild(tokenInput);
-      wrap.appendChild(testBtn);
-      return wrap;
-    },
-  });
-
-  // ---------------------------------------------------------------------------
-  // 4. Common fields
-  // ---------------------------------------------------------------------------
-
-  setting.addItem({
-    title: "Tag filter",
-    description: "Only publish docs with this tag (empty = all)",
-    createActionElement: () => createTextField(fields, "publishTag", getConfig, scheduleSave, "publish"),
-  });
-
-  setting.addItem({
-    title: "Slug mode",
-    createActionElement: () => {
-      const select = document.createElement("select");
-      select.className = "b3-select fn__flex-1";
-      [
-        { value: "title", label: "Title (recommended)" },
-        { value: "id", label: "SiYuan ID" },
-      ].forEach(({ value, label }) => {
-        const option = document.createElement("option");
-        option.value = value;
-        option.textContent = label;
-        option.selected = getConfig().slugMode === value;
-        select.appendChild(option);
-      });
-      const previousValue = { current: getConfig().slugMode };
-      const handleSlugModeChange = async () => {
-        const nextMode = select.value as HugoConfig["slugMode"];
-        if (nextMode === previousValue.current) return;
-        previousValue.current = nextMode;
-        await persistConfigNow();
-        await options.onSlugModeChange(nextMode);
-      };
-      select.addEventListener("input", () => { void handleSlugModeChange(); });
-      select.addEventListener("change", () => { void handleSlugModeChange(); });
-      fields.slugMode = select;
-      return select;
-    },
-  });
-
-  setting.addItem({
-    title: "Hugo language",
-    description: "Language prefix for multi-lang (e.g. \"fr\" → content/fr/posts/). Empty = disabled",
-    createActionElement: () => createTextField(fields, "language", getConfig, scheduleSave, "fr"),
-  });
-
-  setting.addItem({
-    title: "Publish as draft by default",
-    description: "Sets draft: true in front matter",
-    createActionElement: () => createSwitchField(fields, "defaultDraft", getConfig, scheduleSave),
-  });
-
-  setting.addItem({
-    title: "Auto sync on save",
-    description: "Automatically re-publish when the document is saved",
-    createActionElement: () => createSwitchField(fields, "autoSyncOnSave", getConfig, scheduleSave),
-  });
-
-  setting.addItem({
-    title: "Badge refresh delay",
-    description: "Debounce delay in ms for Sync/Modified detection",
-    createActionElement: () => createNumberField(fields, "badgeRefreshDelayMs", getConfig, scheduleSave, 100, "400"),
-  });
-
-  setting.addItem({
-    title: "Auto clean orphans",
-    description: "On plugin startup (page reload), scan Hugo content and remove published pages whose SiYuan document no longer exists. Documents deleted during an active session are always cleaned up automatically, regardless of this setting.",
-    createActionElement: () => createSwitchField(fields, "autoCleanOrphans", getConfig, scheduleSave),
-  });
-
-  setting.addItem({
-    title: "Mirror doc tree structure",
-    description: "Replicate SiYuan folder hierarchy in Hugo content directory. Toggling reorganizes existing published notes.",
-    createActionElement: () => {
-      const checkbox = createSwitchField(fields, "preserveDocTree", getConfig, scheduleSave);
-      const previousValue = { current: getConfig().preserveDocTree };
-      checkbox.addEventListener("change", async () => {
-        const enabled = checkbox.checked;
-        if (enabled === previousValue.current) return;
-        previousValue.current = enabled;
-        await persistConfigNow();
-        await options.onPreserveDocTreeChange(enabled);
-      });
-      return checkbox;
-    },
-  });
-
-  setting.addItem({
-    title: "Clean orphans now",
-    description: "Scan Hugo content directory and remove pages with no matching SiYuan document",
-    createActionElement: () => {
-      const button = document.createElement("button");
-      button.className = "b3-button b3-button--outline";
-      button.textContent = "Run now";
-      button.addEventListener("click", async () => {
-        button.disabled = true;
-        button.textContent = "Running…";
-        await options.runOrphanCleanup();
-        button.textContent = "Run now";
-        button.disabled = false;
-      });
-      return button;
-    },
+    contentArea.appendChild(sidebar);
+    applyModeVisibility();
   });
 
   return setting;
