@@ -23,6 +23,7 @@ RUN npx esbuild src/index.ts \
       --external:crypto \
       --external:os \
     && cp plugin.json dist/ \
+    && cp src/index.css dist/ \
     && cp src/README.md dist/README.md \
     && cp src/logo.png dist/icon.png \
     && cp src/preview.png dist/preview.png \
