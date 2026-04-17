@@ -66,6 +66,7 @@ export default class HugoPublisherPlugin extends Plugin {
         language: "",
         badgeRefreshDelayMs: 400,
         preserveDocTree: false,
+        preserveNotebook: false,
         publishMode: "filesystem",
         gitRepoUrl: "",
         gitBranch: "main",
@@ -76,6 +77,7 @@ export default class HugoPublisherPlugin extends Plugin {
       },
       runOrphanCleanup: () => this.runOrphanCleanup(false),
       onPreserveDocTreeChange: (enabled) => this.retreePublishedDocs(enabled),
+      onPreserveNotebookChange: (enabled) => this.retreePublishedDocs(enabled),
       onSlugModeChange: (mode) => this.republishForSlugModeChange(mode),
     });
 

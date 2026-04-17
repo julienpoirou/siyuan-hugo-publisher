@@ -83,7 +83,8 @@ function buildHugoDestination(config: HugoConfig, adapter: StorageAdapter, hPath
   let contentDir = resolveLocalizedContentDir(config.contentDir, config.language);
 
   if (config.preserveDocTree && hPath) {
-    const folderSegments = hPath.split("/").filter(Boolean).slice(0, -1);
+    const allSegments = hPath.split("/").filter(Boolean).slice(0, -1);
+    const folderSegments = config.preserveNotebook ? allSegments : allSegments.slice(1);
     if (folderSegments.length > 0) {
       contentDir = `${contentDir}/${folderSegments.map(slugify).join("/")}`;
     }

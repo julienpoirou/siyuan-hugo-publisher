@@ -44,6 +44,7 @@ export interface HugoConfig {
   language: string;
   badgeRefreshDelayMs: number;
   preserveDocTree: boolean;
+  preserveNotebook: boolean;
   publishMode: "filesystem" | "git";
   gitRepoUrl: string;
   gitBranch: string;
@@ -62,6 +63,7 @@ export const DEFAULT_CONFIG: HugoConfig = {
   language: "",
   badgeRefreshDelayMs: 400,
   preserveDocTree: false,
+  preserveNotebook: false,
   publishMode: "filesystem",
   gitRepoUrl: "",
   gitBranch: "main",
