@@ -584,8 +584,6 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
   slugSelect.addEventListener("change", () => { void handleSlugModeChange(); });
   fields.slugMode = slugSelect;
 
-  let rowPreserveNotebook!: HTMLElement;
-
   const preserveCheckbox = createSwitchField(fields, "preserveDocTree", getConfig, scheduleSave);
   const previousPreserve = { current: getConfig().preserveDocTree };
   preserveCheckbox.addEventListener("change", async () => {
@@ -602,11 +600,6 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
     }
 
     previousPreserve.current = enabled;
-    rowPreserveNotebook.classList.toggle("shp-row--hidden", !enabled);
-    if (!enabled && preserveNotebookCheckbox.checked) {
-      preserveNotebookCheckbox.checked = false;
-      previousPreserveNotebook.current = false;
-    }
     await persistConfigNow();
     await options.onPreserveDocTreeChange(enabled);
   });
@@ -618,7 +611,7 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
     if (enabled === previousPreserveNotebook.current) return;
 
     const message = enabled
-      ? "Enabling Include notebook will add the SiYuan notebook name as the first path segment in the Hugo directory tree. Existing Hugo permalinks will change."
+      ? "Enabling Include notebook will prepend the SiYuan notebook name to the Hugo path. Existing Hugo permalinks will change."
       : "Disabling Include notebook will remove the notebook directory from the Hugo path. Existing Hugo permalinks will change.";
     const confirmed = await showConfirmModal("Change notebook path structure?", message);
     if (!confirmed) {
@@ -633,11 +626,9 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
 
   const notebookRowEl = buildRow(
     "Include notebook in path",
-    "Prepend the SiYuan notebook name as the first subdirectory (requires Mirror doc tree). Toggling reorganizes existing published notes.",
+    "Prepend the SiYuan notebook name as the first path segment. Works independently of Mirror doc tree. Toggling reorganizes existing published notes.",
     preserveNotebookCheckbox as HTMLElement
   );
-  if (!getConfig().preserveDocTree) notebookRowEl.classList.add("shp-row--hidden");
-  rowPreserveNotebook = notebookRowEl;
 
   const sectionContentRules = buildSection([
     buildRow(

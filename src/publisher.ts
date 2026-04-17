@@ -1,6 +1,6 @@
 import type { HugoConfig, SyncStatus } from "./types";
 import type { StorageAdapter } from "./storage-adapter";
-import { exportMdContent, getBlockAttrs, toWorkspacePath } from "./api";
+import { exportMdContent, getBlockAttrs, getDocNotebookName, toWorkspacePath } from "./api";
 import { convertDoc, parseIALTags, renderMarkdownFile, slugify } from "./converter";
 import { copyImagesToHugo, validateHugoProject } from "./image-handler";
 import { computeSyncStatus, computeCurrentMetaHash, setSyncEntry, getSyncEntry, removeSyncEntry, reconcileImageRefsForDoc, getMirroredDocIds } from "./sync-state";
@@ -71,23 +71,36 @@ export function resolveLocalizedContentDir(contentDir: string, language: string)
 /**
  * Builds the destination helpers used for Hugo content output paths.
  *
- * When `preserveDocTree` is enabled and `hPath` is provided, the SiYuan
- * hierarchical path is mirrored as subfolders under `contentDir`.
+ * `preserveNotebook` prepends the notebook name; `preserveDocTree` mirrors
+ * the sub-folder hierarchy from `hPath`. Both are independent and additive.
  *
  * @param config Active Hugo publishing configuration.
  * @param adapter Active storage adapter (provides the hugo base path).
- * @param hPath Optional SiYuan hierarchical path used for tree mirroring.
+ * @param hPath Optional SiYuan hierarchical path (sub-folder tree, no notebook).
+ * @param notebookName Optional notebook name to prepend when `preserveNotebook` is set.
  */
-function buildHugoDestination(config: HugoConfig, adapter: StorageAdapter, hPath?: string): HugoDestination {
+function buildHugoDestination(
+  config: HugoConfig,
+  adapter: StorageAdapter,
+  hPath?: string,
+  notebookName?: string
+): HugoDestination {
   const hugoBase = adapter.hugoBase;
   let contentDir = resolveLocalizedContentDir(config.contentDir, config.language);
 
+  const pathSegments: string[] = [];
+
+  if (config.preserveNotebook && notebookName) {
+    pathSegments.push(slugify(notebookName));
+  }
+
   if (config.preserveDocTree && hPath) {
-    const allSegments = hPath.split("/").filter(Boolean).slice(0, -1);
-    const folderSegments = config.preserveNotebook ? allSegments : allSegments.slice(1);
-    if (folderSegments.length > 0) {
-      contentDir = `${contentDir}/${folderSegments.map(slugify).join("/")}`;
-    }
+    const folderSegments = hPath.split("/").filter(Boolean).slice(0, -1);
+    pathSegments.push(...folderSegments.map(slugify));
+  }
+
+  if (pathSegments.length > 0) {
+    contentDir = `${contentDir}/${pathSegments.join("/")}`;
   }
 
   const dirPath = `${hugoBase}/${contentDir}`;
@@ -379,7 +392,15 @@ export async function publishDoc(
     imageResults.filter((r) => r.success).map((r) => r.ref.targetPath)
   );
 
-  const destination = buildHugoDestination(config, adapter, exported.hPath);
+  let notebookName: string | undefined;
+  if (config.preserveNotebook) {
+    try {
+      notebookName = await getDocNotebookName(docId);
+    } catch (err) {
+      log.warn("Unable to resolve notebook name", err);
+    }
+  }
+  const destination = buildHugoDestination(config, adapter, exported.hPath, notebookName);
   const discoveredPrevious = await findPublishedDocRecord(docId, config, adapter);
   const previousEntry = await getSyncEntry(docId) ?? (discoveredPrevious ? {
     hash: discoveredPrevious.hash,

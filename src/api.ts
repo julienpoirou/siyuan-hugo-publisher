@@ -165,6 +165,26 @@ export async function readFileBlob(path: string): Promise<Blob> {
 }
 
 /**
+ * Returns the human-readable notebook name for a document.
+ *
+ * @param docId Document identifier.
+ * @returns The notebook name, or `undefined` when it cannot be resolved.
+ */
+export async function getDocNotebookName(docId: string): Promise<string | undefined> {
+  const rows = await request<Array<{ box: string }>>(
+    "/api/query/sql",
+    { stmt: `SELECT box FROM blocks WHERE id = '${docId.replace(/'/g, "''")}' AND type = 'd' LIMIT 1` }
+  );
+  const boxId = Array.isArray(rows) && rows.length > 0 ? rows[0].box : undefined;
+  if (!boxId) return undefined;
+  const data = await request<{ notebooks: Array<{ id: string; name: string }> }>(
+    "/api/notebook/lsNotebooks",
+    {}
+  );
+  return data.notebooks?.find((n) => n.id === boxId)?.name;
+}
+
+/**
  * Checks whether a SiYuan document still exists outside of trash.
  *
  * @param docId Document identifier.
