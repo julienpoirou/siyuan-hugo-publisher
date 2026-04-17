@@ -46,6 +46,13 @@ export function matchesPublishTagFilter(rawTags: string, publishTag: string): bo
   return parseIALTags(rawTags).map((tag) => normalizeTag(tag)).includes(expected);
 }
 
+export function matchesNotebookWhitelist(notebookName: string | undefined, whitelist: string): boolean {
+  const entries = whitelist.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  if (entries.length === 0) return true;
+  if (!notebookName) return false;
+  return entries.includes(notebookName.toLowerCase());
+}
+
 /**
  * Removes leading and trailing slashes from a path segment.
  */
@@ -376,6 +383,24 @@ export async function publishDoc(
     }
   }
 
+  let notebookName: string | undefined;
+  if (config.preserveNotebook || config.notebookWhitelist.trim()) {
+    try {
+      notebookName = await getDocNotebookName(docId);
+    } catch (err) {
+      log.warn("Unable to resolve notebook name", err);
+    }
+  }
+
+  if (config.notebookWhitelist.trim()) {
+    if (!matchesNotebookWhitelist(notebookName, config.notebookWhitelist)) {
+      return {
+        success: false,
+        message: `Notebook not in whitelist — publication ignorée`,
+      };
+    }
+  }
+
   let converted;
   try {
     converted = await convertDoc(docId, exported.content, docName, ial, config);
@@ -392,14 +417,6 @@ export async function publishDoc(
     imageResults.filter((r) => r.success).map((r) => r.ref.targetPath)
   );
 
-  let notebookName: string | undefined;
-  if (config.preserveNotebook) {
-    try {
-      notebookName = await getDocNotebookName(docId);
-    } catch (err) {
-      log.warn("Unable to resolve notebook name", err);
-    }
-  }
   const destination = buildHugoDestination(config, adapter, exported.hPath, notebookName);
   const discoveredPrevious = await findPublishedDocRecord(docId, config, adapter);
   const previousEntry = await getSyncEntry(docId) ?? (discoveredPrevious ? {

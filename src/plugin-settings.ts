@@ -152,6 +152,7 @@ function buildConfigFromFields(fields: FieldMap): HugoConfig {
     badgeRefreshDelayMs: Math.max(100, Number((fields.badgeRefreshDelayMs as HTMLInputElement).value) || 400),
     preserveDocTree: (fields.preserveDocTree as HTMLInputElement).checked,
     preserveNotebook: (fields.preserveNotebook as HTMLInputElement).checked,
+    notebookWhitelist: (fields.notebookWhitelist as HTMLInputElement).value.trim(),
     publishMode: (fields.publishMode as HTMLSelectElement).value as HugoConfig["publishMode"],
     gitRepoUrl: (fields.gitRepoUrl as HTMLInputElement)?.value.trim() ?? "",
     gitBranch: (fields.gitBranch as HTMLInputElement)?.value.trim() || "main",
@@ -653,6 +654,11 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
       preserveCheckbox as HTMLElement
     ),
     notebookRowEl,
+    buildRow(
+      "Notebook whitelist",
+      "Comma-separated list of notebook names to sync (empty = all notebooks)",
+      createTextField(fields, "notebookWhitelist", getConfig, scheduleSave, "My Notebook, Blog") as HTMLElement
+    ),
   ]);
 
   // -------------------------------------------------------------------------

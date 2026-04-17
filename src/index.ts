@@ -67,6 +67,7 @@ export default class HugoPublisherPlugin extends Plugin {
         badgeRefreshDelayMs: 400,
         preserveDocTree: false,
         preserveNotebook: false,
+        notebookWhitelist: "",
         publishMode: "filesystem",
         gitRepoUrl: "",
         gitBranch: "main",
