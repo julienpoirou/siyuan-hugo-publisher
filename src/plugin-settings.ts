@@ -450,7 +450,7 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
   );
 
   const tokenWrap = document.createElement("div");
-  tokenWrap.className = "fn__flex fn__flex-1";
+  tokenWrap.className = "fn__flex fn__flex-1 shp-token-wrap";
   tokenWrap.style.gap = "8px";
   const tokenInput = document.createElement("input");
   tokenInput.type = "password";

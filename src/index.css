@@ -54,6 +54,7 @@
   overflow-x: hidden;
   /* Remove the top border that appears at the top-right corner */
   border-top: none;
+  border-radius: 0;
 }
 
 /* ---------------------------------------------------------------------------
@@ -136,9 +137,17 @@
 }
 
 /* Path field wrapper fills the action area */
-.shp-row__action .shp-path-field {
+.shp-row__action .shp-path-field,
+.shp-row__action .shp-token-wrap {
   flex: 1;
   width: 100%;
+}
+
+/* Token input wrapper — overflow trick keeps focus ring visible */
+.shp-token-wrap {
+  overflow: visible;
+  padding: 3px;
+  margin: -3px;
 }
 
 /* Switches keep their native dimensions — never override width/height */
