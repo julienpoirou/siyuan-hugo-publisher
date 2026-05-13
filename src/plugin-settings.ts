@@ -11,6 +11,7 @@ interface SetupPluginSettingsOptions {
   onConfigChange: (config: HugoConfig) => void;
   runOrphanCleanup: () => Promise<void>;
   onPreserveDocTreeChange: (enabled: boolean) => Promise<void>;
+  onPreserveNotebookChange: (enabled: boolean) => Promise<void>;
   onSlugModeChange: (mode: HugoConfig["slugMode"]) => Promise<void>;
 }
 
@@ -150,6 +151,8 @@ function buildConfigFromFields(fields: FieldMap): HugoConfig {
     autoCleanOrphans: (fields.autoCleanOrphans as HTMLInputElement).checked,
     badgeRefreshDelayMs: Math.max(100, Number((fields.badgeRefreshDelayMs as HTMLInputElement).value) || 400),
     preserveDocTree: (fields.preserveDocTree as HTMLInputElement).checked,
+    preserveNotebook: (fields.preserveNotebook as HTMLInputElement).checked,
+    notebookWhitelist: (fields.notebookWhitelist as HTMLInputElement).value.trim(),
     publishMode: (fields.publishMode as HTMLSelectElement).value as HugoConfig["publishMode"],
     gitRepoUrl: (fields.gitRepoUrl as HTMLInputElement)?.value.trim() ?? "",
     gitBranch: (fields.gitBranch as HTMLInputElement)?.value.trim() || "main",
@@ -602,6 +605,32 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
     await options.onPreserveDocTreeChange(enabled);
   });
 
+  const preserveNotebookCheckbox = createSwitchField(fields, "preserveNotebook", getConfig, scheduleSave);
+  const previousPreserveNotebook = { current: getConfig().preserveNotebook };
+  preserveNotebookCheckbox.addEventListener("change", async () => {
+    const enabled = preserveNotebookCheckbox.checked;
+    if (enabled === previousPreserveNotebook.current) return;
+
+    const message = enabled
+      ? "Enabling Include notebook will prepend the SiYuan notebook name to the Hugo path. Existing Hugo permalinks will change."
+      : "Disabling Include notebook will remove the notebook directory from the Hugo path. Existing Hugo permalinks will change.";
+    const confirmed = await showConfirmModal("Change notebook path structure?", message);
+    if (!confirmed) {
+      preserveNotebookCheckbox.checked = previousPreserveNotebook.current;
+      return;
+    }
+
+    previousPreserveNotebook.current = enabled;
+    await persistConfigNow();
+    await options.onPreserveNotebookChange(enabled);
+  });
+
+  const notebookRowEl = buildRow(
+    "Include notebook in path",
+    "Prepend the SiYuan notebook name as the first path segment. Works independently of Mirror doc tree. Toggling reorganizes existing published notes.",
+    preserveNotebookCheckbox as HTMLElement
+  );
+
   const sectionContentRules = buildSection([
     buildRow(
       "Tag filter",
@@ -623,6 +652,12 @@ export function setupPluginSettings(options: SetupPluginSettingsOptions): Settin
       "Mirror doc tree structure",
       "Replicate SiYuan folder hierarchy in Hugo content directory. Toggling reorganizes existing published notes.",
       preserveCheckbox as HTMLElement
+    ),
+    notebookRowEl,
+    buildRow(
+      "Notebook whitelist",
+      "Comma-separated list of notebook names to sync (empty = all notebooks)",
+      createTextField(fields, "notebookWhitelist", getConfig, scheduleSave, "My Notebook, Blog") as HTMLElement
     ),
   ]);
 
