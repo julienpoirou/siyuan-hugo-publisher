@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.6.0...v1.7.0) (2026-05-13)
+
+
+### Features ✨
+
+* **notebook:** Add preserveNotebook toggle to content rules ([#37](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/37)) ([f302836](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/f30283606b9bb31791992bd624913d1e12c69ab6))
+
 ## [1.6.0](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.5.1...v1.6.0) (2026-04-15)
 
 
