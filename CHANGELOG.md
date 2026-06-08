@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.8.0](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.7.0...v1.8.0) (2026-06-08)
+
+
+### Features ✨
+
+* **build:** Add logo and download badge to the repository README ([b3c7d17](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/b3c7d17d21751315be321e1179a6ab512ec4fd1d))
+* **git:** Add git publishing, orphan cleanup, and live sync badge updates ([#24](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/24)) ([bc4386f](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/bc4386f759a3f997c957fa0fbb448ced78755a4c))
+* **harden:** Package plugin assets and harden docker plugin activation ([c042708](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/c042708d0c2d6c18accba14c6307a5f8d3e677f9))
+* **notebook:** Add preserveNotebook toggle to content rules ([#37](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/37)) ([1c7ff6e](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/1c7ff6e1e991fe73967f9b853dfeb97977a07aa0))
+* **publisher:** Mirror SiYuan doc tree in Hugo content directory ([#22](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/22)) ([7a9add4](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/7a9add4942fd57dd14a2bf5c6aba50521cbd71f1))
+* **settings:** Add directory explorer for Hugo project path ([#16](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/16)) ([d4fccd6](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/d4fccd62dcbde99a906b92026fc3578ce7bd2074))
+* **settings:** Redesign panel layout and add confirmation modals ([#32](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/32)) ([8c47785](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/8c477856ab56a7fbac7af6fa184dfd5cf253fba7))
+
+
+### Corrections 🐛
+
+* **ci:** Update deprecated TypeScript module resolution options ([dd19d6d](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/dd19d6d29ed483ac525959a0d2ef0717b06824d3))
+* **converter:** Escape Hugo shortcode delimiters in exported Markdown ([#14](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/14)) ([b7dba8c](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/b7dba8cc5707e8b7ed8b5c7a199702ee0f6d3a95))
+* **converter:** Escape Hugo shortcode delimiters in exported Markdown ([#18](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/18)) ([78ecaf6](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/78ecaf6c7d4a17fe836f6cb2dd0e66676cb3f735))
+* **converter:** Escape Hugo shortcode delimiters in exported MD ([#20](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/20)) ([d51c33a](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/d51c33af4f37105d287c42049456aa3487089a27))
+* **converter:** Incomplete string escaping ([#12](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/12)) ([662f841](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/662f841176e981120033e93d504112fae23f4b65))
+* **git:** Badges and actions blocked when git mode active, guards checked hugoProjectPath ([#27](https://github.com/julienpoirou/siyuan-hugo-publisher/issues/27)) ([0574b8d](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/0574b8dfffc0dd3a8a8878c4840b538441dad00a))
+* **repo:** Add bazaar css asset, compress media, and harden publish errors ([19ce56f](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/19ce56f166962cedc932bef96e8ca4950eb9f81e))
+* **test:** Replace unsupported recursive glob in CI ([2f1b4d9](https://github.com/julienpoirou/siyuan-hugo-publisher/commit/2f1b4d96e9112c59823600fd5749f513e364994f))
+
 ## [1.7.0](https://github.com/julienpoirou/siyuan-hugo-publisher/compare/v1.6.0...v1.7.0) (2026-05-13)
 
 
